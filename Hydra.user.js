@@ -1,6 +1,6 @@
 // ==UserScript==
 // @name         Hydra
-// @version      1.5
+// @version      1.6
 // @description  Dual-headed load tracker - Inbound (red) & Outbound (blue) on Dock pages
 // @author       eddobrev
 // @updateURL    https://raw.githubusercontent.com/dylbecke/hydra-userscript/main/Hydra.user.js
@@ -16146,7 +16146,7 @@ if (k === 'eta') {
     // ═══════════════════════════════════════════════════════════════════════════
 
     var AI_SERVER_URL = 'https://ds-l013ue9b--7077.us-east-1.prod.proxy.devspaces.amazon.dev';
-    var aiVisible = GM_getValue('hydra_ai_enabled', true);
+    var aiVisible = GM_getValue('hydra_ai_enabled', false);
     var aiDataPullOn = false;
     var aiDataPullInterval = null;
     var AI_PULL_INTERVAL = 5 * 60 * 1000;
