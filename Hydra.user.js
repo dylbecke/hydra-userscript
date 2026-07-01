@@ -1,6 +1,6 @@
 // ==UserScript==
 // @name         Hydra
-// @version      1.4
+// @version      1.5
 // @description  Dual-headed load tracker - Inbound (red) & Outbound (blue) on Dock pages
 // @author       eddobrev
 // @updateURL    https://raw.githubusercontent.com/dylbecke/hydra-userscript/main/Hydra.user.js
