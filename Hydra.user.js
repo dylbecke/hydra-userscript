@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Hydra
+// @version      1.3.0
 // @namespace    https://github.com/dylbecke/hydra-userscript
-// @version      1.2.0
 // @description  Dual-headed load tracker - Inbound (red) & Outbound (blue) on Dock pages
 // @author       eddobrev
 // @updateURL    https://raw.githubusercontent.com/dylbecke/hydra-userscript/main/Hydra.meta.js
@@ -10,6 +10,7 @@
 // @match        https://trans-logistics.amazon.com/ssp/dock/ib*
 // @match        https://trans-logistics.amazon.com/ssp/dock/hrz/ob*
 // @match        https://trans-logistics.amazon.com/ssp/dock/ob*
+// @match        https://na.prod.command-center.robotics.amazon.dev/*
 // @icon         data:image/gif;base64,R0lGODlhAQABAAAAACH5BAEKAAEALAAAAAABAAEAAAICTAEAw==
 // @grant        GM_xmlhttpRequest
 // @grant        GM_setValue
@@ -33,6 +34,30 @@
 
 (function () {
     'use strict';
+
+    // If running on QBCC, just grab the Cognito token and keep it fresh — don't load Hydra UI
+    if (window.location.hostname.indexOf('command-center.robotics.amazon.dev') !== -1) {
+        function syncQbccToken() {
+            try {
+                var keys = Object.keys(localStorage);
+                for (var i = 0; i < keys.length; i++) {
+                    if (keys[i].indexOf('idToken') !== -1) {
+                        var tk = localStorage.getItem(keys[i]);
+                        if (tk && tk.length > 500 && tk.indexOf('eyJ') === 0) {
+                            GM_setValue('qbcc_token', tk);
+                            GM_setValue('qbcc_token_exp', Date.now() + 3500000);
+                            return;
+                        }
+                    }
+                }
+            } catch(e) {}
+        }
+        // Sync on load and every 30 minutes
+        syncQbccToken();
+        setInterval(syncQbccToken, 30 * 60 * 1000);
+        return; // Don't load rest of Hydra
+    }
+
     console.log('[Hydra 1.1] Script starting...');
 
     // ═══════════════════════════════════════════════════════════════════════════
@@ -6175,6 +6200,13 @@ var hydraTheme = (function(){ try { return localStorage.getItem('hydra_theme') |
             return;
         }
         el.style.display = '';
+        // Collapse/expand toggle
+        if (typeof el._collapsed === 'undefined') el._collapsed = false;
+        if (el._collapsed) {
+            el.innerHTML = '<button id="hydra-door-expand" style="background:none;border:1px solid var(--h-border2,#3a4a5c);border-radius:4px;color:var(--h-muted,#aab4c0);padding:2px 8px;font-size:10px;cursor:pointer;width:100%">\u25BC Dock Doors</button>';
+            document.getElementById('hydra-door-expand').addEventListener('click', function() { el._collapsed = false; renderDockDoorPanel(); });
+            return;
+        }
         // DIAG: on each render, log a snapshot of what YMS gave us and how
         // configured doors are matching against it.
         (function() {
@@ -6320,9 +6352,13 @@ var hydraTheme = (function(){ try { return localStorage.getItem('hydra_theme') |
                    '<div class="' + bodyCls + '">' + bodyHtml + '</div>' +
                    '</div>';
         }).join('');
+        html = '<button id="hydra-door-collapse" style="position:absolute;top:2px;right:4px;background:none;border:none;color:var(--h-muted,#aab4c0);font-size:10px;cursor:pointer;padding:0 4px;z-index:1" title="Collapse">\u25B2</button>' + html;
+        el.style.position = 'relative';
         el.innerHTML = html;
         // Ensure the size CSS var is current (user may have just changed it)
         applyDockDoorSize();
+        var colBtn = document.getElementById('hydra-door-collapse');
+        if (colBtn) colBtn.addEventListener('click', function() { el._collapsed = true; renderDockDoorPanel(); });
         // YMS Move: click handler on dock door cells
         el.querySelectorAll('.hydra-door-cell').forEach(function(cell) {
             cell.addEventListener('dblclick', function(e) {
@@ -11541,7 +11577,7 @@ if (k === 'eta') {
     var arMezzLastFetch = 0;
     var arMezzMinutes = 15; // 5, 15, or 30
     var arMezzShowRates = false; // false = WIP, true = scan rates
-    var arMezzShowAMZL = false; // highlight AMZL (CYC) chutes
+    var arMezzOverlay = ''; // '' | 'amzl' | 'priority' | 'perspective'
     var qbccChuteData = null; // cached QBCC queryChuteInfo response
     var qbccPriorities = {}; // mapId -> 'high'|'low'
 
@@ -11579,12 +11615,26 @@ if (k === 'eta') {
         });
     }
 
+    function cleanSortKeys(keys) {
+        var seen = {};
+        var result = [];
+        keys.forEach(function(k) {
+            var s = k.stackingFilter || '';
+            s = s.replace(/-C-SMALL$|-C-LARGE$|-SMALL$|-LARGE$|-CYCLE\d*$|-CYC\d*$/i, '');
+            if (s && !seen[s]) { seen[s] = true; result.push(s); }
+        });
+        return result;
+    }
+
     function computeQbccPriorities() {
         if (!qbccChuteData) return;
         var skMap = {}; // sortKey -> [{mapId, available}]
         qbccChuteData.forEach(function(ci) {
             if (ci.staticInfo.workCellType !== 'REGULAR') return;
-            var avail = ci.state.operationalState === 'OK' && ci.state.administrativeState === 'ENABLED';
+            // Unavailable = anything except OK+ENABLED or just partially full
+            var codes = (ci.state.statusCodes || []).map(function(sc) { return sc.statusCode; });
+            var onlyPartial = codes.length === 1 && codes[0] === 'SortationEject:CHUTE_PARTIALLY_FULL';
+            var avail = (ci.state.operationalState === 'OK' && ci.state.administrativeState === 'ENABLED') || onlyPartial;
             var keys = (ci.mapping && ci.mapping.sortKeys) || [];
             keys.forEach(function(sk) {
                 var k = sk.stackingFilter;
@@ -11595,11 +11645,14 @@ if (k === 'eta') {
         qbccPriorities = {};
         Object.keys(skMap).forEach(function(sk) {
             var chutes = skMap[sk];
-            if (chutes.length < 2) return;
+            if (chutes.length < 1) return;
             var unavail = chutes.filter(function(c) { return !c.available; });
-            if (unavail.length > 1 && unavail.length === chutes.length) {
+            if (unavail.length === 0) return;
+            if (unavail.length === chutes.length) {
+                // ALL unavailable -> high priority
                 unavail.forEach(function(c) { qbccPriorities[c.mapId] = 'high'; });
-            } else if (unavail.length > 1) {
+            } else {
+                // Some unavailable -> low priority
                 unavail.forEach(function(c) { if (qbccPriorities[c.mapId] !== 'high') qbccPriorities[c.mapId] = 'low'; });
             }
         });
@@ -11616,49 +11669,7 @@ if (k === 'eta') {
             qbccToken = stored; qbccTokenExp = storedExp;
             return Promise.resolve(qbccToken);
         }
-        // Get Midway JWT then exchange for Cognito token
-        return new Promise(function(resolve, reject) {
-            var nonce = 'hydra' + Date.now();
-            GM_xmlhttpRequest({
-                method: 'GET',
-                url: 'https://midway-auth.amazon.com/SSO?response_type=id_token&client_id=na.prod.command-center.robotics.amazon.dev&redirect_uri=https://na.prod.command-center.robotics.amazon.dev/&scope=openid&nonce=' + nonce,
-                withCredentials: true,
-                onload: function(r) {
-                    var jwt = (r.responseText || '').trim();
-                    if (jwt && jwt.startsWith('eyJ') && jwt.split('.').length === 3) {
-                        // Now exchange Midway JWT for Cognito token via the QBCC Cognito federated sign-in
-                        var cognitoUrl = 'https://qbcc-prod.auth.us-east-1.amazoncognito.com/oauth2/authorize?response_type=token&client_id=3i2fvooo3s4lv4tn9bkleim9ug3&redirect_uri=https%3A%2F%2Fna.prod.command-center.robotics.amazon.dev%2F&scope=openid+email+profile&identity_provider=AmazonFederate&nonce=' + nonce;
-                        GM_xmlhttpRequest({
-                            method: 'GET', url: cognitoUrl, withCredentials: true,
-                            onload: function(r2) {
-                                var loc = r2.finalUrl || '';
-                                var headers = r2.responseHeaders || '';
-                                var locMatch = headers.match(/location:\s*(.+)/i);
-                                if (locMatch) loc = locMatch[1].trim();
-                                var m = loc.match(/id_token=([A-Za-z0-9\-_\.]+)/) || (r2.responseText || '').match(/id_token=([A-Za-z0-9\-_\.]+)/);
-                                if (m) {
-                                    qbccToken = m[1]; qbccTokenExp = Date.now() + 3500000;
-                                    GM_setValue('qbcc_token', qbccToken); GM_setValue('qbcc_token_exp', qbccTokenExp);
-                                    resolve(qbccToken);
-                                } else {
-                                    // Try using the Midway JWT directly with AppSync
-                                    qbccToken = jwt; qbccTokenExp = Date.now() + 240000;
-                                    resolve(qbccToken);
-                                }
-                            },
-                            onerror: function() {
-                                // Fallback: try Midway JWT directly
-                                qbccToken = jwt; qbccTokenExp = Date.now() + 240000;
-                                resolve(qbccToken);
-                            }
-                        });
-                    } else {
-                        reject(new Error('QBCC: Midway auth failed'));
-                    }
-                },
-                onerror: function() { reject(new Error('QBCC: Midway request failed')); }
-            });
-        });
+        return Promise.reject(new Error('QBCC: open Command Center in another tab to authenticate'));
     }
 
     function fetchArMezzData() {
@@ -11707,6 +11718,39 @@ if (k === 'eta') {
         var laneRe = /Lane\s+(\d+)\s+Chute\s+(\d+)/i;
         var uniqueAssocs = new Set();
 
+        // Pre-pass: sum each associate's scans across ALL workstations for accurate JPH
+        var globalAssocScans = {};
+        arMezzData.forEach(function(ws) {
+            if (ws.workstation.workstationType !== 'CONTAINER_BUILD') return;
+            (ws.workstationStates || []).forEach(function(st) {
+                if (st.associateData && st.associateData.perAssociateData) {
+                    st.associateData.perAssociateData.forEach(function(a) {
+                        if (a.associateId) globalAssocScans[a.associateId] = (globalAssocScans[a.associateId] || 0) + (a.scanCount || 0);
+                    });
+                }
+            });
+        });
+
+        // Pre-pass: find each associate's latest chute (by lastScanTime)
+        var assocLatestChute = {}; // associateId -> { lane, chute, lastScanTime }
+        arMezzData.forEach(function(ws) {
+            if (ws.workstation.workstationType !== 'CONTAINER_BUILD') return;
+            var m2 = laneRe.exec(ws.workstation.workstationAlias);
+            if (!m2) return;
+            var wLane = parseInt(m2[1], 10), wChute = parseInt(m2[2], 10);
+            var states = ws.workstationStates;
+            if (!states || !states.length) return;
+            var last = states[states.length - 1];
+            var assocs = (last.associateData && last.associateData.perAssociateData) || [];
+            assocs.forEach(function(a) {
+                if (!a.associateId) return;
+                var t = a.lastScanTime || 0;
+                if (!assocLatestChute[a.associateId] || t > assocLatestChute[a.associateId].lastScanTime) {
+                    assocLatestChute[a.associateId] = { lane: wLane, chute: wChute, lastScanTime: t };
+                }
+            });
+        });
+
         arMezzData.forEach(function(ws) {
             if (ws.workstation.workstationType !== 'CONTAINER_BUILD') return;
             var m = laneRe.exec(ws.workstation.workstationAlias);
@@ -11716,7 +11760,13 @@ if (k === 'eta') {
             if (!states || !states.length) return;
             var last = states[states.length - 1];
             var wip = (last.workInProgressCount && last.workInProgressCount.value) || 0;
-            var assocs = (last.associateData && last.associateData.perAssociateData) || [];
+            var allAssocs = (last.associateData && last.associateData.perAssociateData) || [];
+            // Only count associates whose latest location is THIS chute
+            var assocs = allAssocs.filter(function(a) {
+                if (!a.associateId) return false;
+                var latest = assocLatestChute[a.associateId];
+                return latest && latest.lane === lane && latest.chute === chute;
+            });
             var scanning = assocs.some(function(a) { return a.scanCount > 0; });
             var lastScan = 0;
             assocs.forEach(function(a) { if (a.lastScanTime && a.lastScanTime > lastScan) lastScan = a.lastScanTime; });
@@ -11753,7 +11803,8 @@ if (k === 'eta') {
                 var a0 = assocs[0];
                 var inactiveMin = 0;
                 if (a0.lastScanTime) { inactiveMin = Math.max(0, Math.round((Date.now() - a0.lastScanTime) / 60000)); }
-                assocDetail = { login: a0.associateId, scanRate: Math.round(chuteScans * (60 / arMezzMinutes)), scanning: a0.scanCount > 0, inactiveMin: inactiveMin };
+                var a0Scans = globalAssocScans[a0.associateId] || 0;
+                assocDetail = { login: a0.associateId, scanRate: Math.round(a0Scans * (60 / arMezzMinutes)), scanning: a0.scanCount > 0, inactiveMin: inactiveMin };
             }
             grid[lane][chute] = { wip: wip, scanning: scanning, idle: idle, assocCount: assocs.length, scans: chuteScans, chuteId: chuteId, assoc: assocDetail };
             totalWip += wip;
@@ -11765,11 +11816,25 @@ if (k === 'eta') {
 
         // Build set of AMZL (CYC) chute mapIds from QBCC data
         var amzlChutes = {};
-        if (arMezzShowAMZL && qbccChuteData) {
+        if (arMezzOverlay === 'amzl' && qbccChuteData) {
             qbccChuteData.forEach(function(ci) {
                 var keys = (ci.mapping && ci.mapping.sortKeys) || [];
                 var hasCyc = keys.some(function(sk) { return sk.stackingFilter && sk.stackingFilter.indexOf('CYC') !== -1; });
                 if (hasCyc) amzlChutes[ci.chuteId.mapId] = true;
+            });
+        }
+        // Build perspective map (half-full / full / hardware / inactive) from QBCC data
+        var perspChutes = {}; // mapId -> 'full' | 'half' | 'hardware' | 'inactive'
+        if (arMezzOverlay === 'perspective' && qbccChuteData) {
+            qbccChuteData.forEach(function(ci) {
+                var codes = (ci.state.statusCodes || []).map(function(sc) { return sc.statusCode; });
+                var hasHardware = codes.indexOf('COMMON:DISABLED_BY_HARDWARE') !== -1;
+                var hasMMA = codes.indexOf('COMMON:DISABLED_BY_MMA') !== -1 || ci.state.administrativeState === 'DISABLED';
+                var hasFull = codes.indexOf('SortationEject:CHUTE_FULL') !== -1;
+                var util = parseInt(ci.state.settings && ci.state.settings.outfeedUtilizationValue, 10) || 0;
+                if (hasFull || util >= 100) perspChutes[ci.chuteId.mapId] = 'full';
+                else if (util >= 50) perspChutes[ci.chuteId.mapId] = 'half';
+                else if (hasHardware || hasMMA || ci.state.operationalState === 'ERROR') perspChutes[ci.chuteId.mapId] = 'inactive';
             });
         }
 
@@ -11792,13 +11857,23 @@ if (k === 'eta') {
             html += '<div style="font-size:18px;font-weight:700;color:' + s.color + '">' + s.value + '</div>';
             html += '</div>';
         });
-        html += '<select id="hydra-armezz-minutes" style="margin-left:auto;align-self:center;background:var(--h-bg2,#16202c);border:1px solid var(--h-border2,#3a4a5c);border-radius:4px;color:var(--h-text,#e8eaf0);padding:4px 10px;font-size:12px;cursor:pointer">';
+        html += '</div>';
+        // Controls row below stat cards
+        html += '<div style="display:flex;gap:6px;margin-bottom:16px;justify-content:center;align-items:center">';
+        html += '<select id="hydra-armezz-minutes" style="background:var(--h-bg2,#16202c);border:1px solid var(--h-border2,#3a4a5c);border-radius:4px;color:var(--h-text,#e8eaf0);padding:4px 10px;font-size:12px;cursor:pointer">';
         html += '<option value="5"' + (arMezzMinutes===5?' selected':'') + '>5 min</option>';
         html += '<option value="15"' + (arMezzMinutes===15?' selected':'') + '>15 min</option>';
         html += '<option value="30"' + (arMezzMinutes===30?' selected':'') + '>30 min</option>';
         html += '</select>';
-        html += '<button id="hydra-armezz-toggle" style="background:var(--h-bg2,#16202c);border:1px solid var(--h-border2,#3a4a5c);border-radius:4px;color:var(--h-text,#e8eaf0);padding:4px 10px;font-size:11px;cursor:pointer;white-space:nowrap;font-weight:600">' + (arMezzShowRates ? 'Show WIP' : 'Show Scan Rates') + '</button>';
-        html += '<button id="hydra-armezz-amzl" style="background:' + (arMezzShowAMZL ? '#1e40af' : 'var(--h-bg2,#16202c)') + ';border:1px solid ' + (arMezzShowAMZL ? '#3b82f6' : 'var(--h-border2,#3a4a5c)') + ';border-radius:4px;color:' + (arMezzShowAMZL ? '#93c5fd' : 'var(--h-text,#e8eaf0)') + ';padding:4px 10px;font-size:11px;cursor:pointer;white-space:nowrap;font-weight:600">' + (arMezzShowAMZL ? '\u25CF AMZL' : 'Show AMZL') + '</button>';
+        html += '<button id="hydra-armezz-toggle" style="background:var(--h-bg2,#16202c);border:1px solid var(--h-border2,#3a4a5c);border-radius:4px;color:var(--h-text,#e8eaf0);padding:4px 8px;font-size:11px;cursor:pointer;white-space:nowrap;font-weight:600">' + (arMezzShowRates ? 'Show WIP' : 'Show Scan Rates') + '</button>';
+        html += '<span style="width:1px;height:16px;background:var(--h-border2,#3a4a5c)"></span>';
+        var ovBtns = [{id:'priority',label:'Priority'},{id:'amzl',label:'AMZL'},{id:'perspective',label:'Perspective'}];
+        var qbccDisabled = !qbccChuteData;
+        ovBtns.forEach(function(b) {
+            var active = arMezzOverlay === b.id;
+            var dis = qbccDisabled;
+            html += '<button id="hydra-armezz-ov-' + b.id + '"' + (dis ? ' title="Open Command Center to enable"' : '') + ' style="background:' + (active && !dis ? '#1e40af' : 'var(--h-bg2,#16202c)') + ';border:1px solid ' + (active && !dis ? '#3b82f6' : 'var(--h-border2,#3a4a5c)') + ';border-radius:4px;color:' + (dis ? '#555' : (active ? '#93c5fd' : 'var(--h-text,#e8eaf0)')) + ';padding:4px 8px;font-size:11px;cursor:' + (dis ? 'not-allowed' : 'pointer') + ';white-space:nowrap;font-weight:600;opacity:' + (dis ? '0.5' : '1') + '">' + (active && !dis ? '\u25CF ' : '') + b.label + '</button>';
+        });
         html += '</div>';
 
         // Flex row: tables left, side panel right
@@ -11834,7 +11909,7 @@ if (k === 'eta') {
                     var cellWip = cd ? cd.wip : 0;
                     var cellDisplay = cellWip;
                     var isRate = false;
-                    if (arMezzShowRates && cd && (cd.scanning || cd.idle)) { cellDisplay = Math.round((cd.scans || 0) * (60 / arMezzMinutes)); isRate = true; }
+                    if (arMezzShowRates && cd && (cd.scanning || cd.idle)) { cellDisplay = cd.assoc ? cd.assoc.scanRate : Math.round((cd.scans || 0) * (60 / arMezzMinutes)); isRate = true; }
                     var bg = '', color = 'color:var(--h-muted,#7a8a9a)';
                     if (cd && cd.scanning) { bg = 'background:#166534'; color = 'color:#4ade80'; }
                     else if (cd && cd.idle) { bg = 'background:#ca8a04'; color = 'color:#000'; }
@@ -11842,14 +11917,20 @@ if (k === 'eta') {
                     else if (cellWip > 0) { color = 'color:var(--h-text,#e8eaf0)'; }
                     var qbccBorder = '';
                     var qbccMapId = 20000 + c * 100 + l;
-                    if (qbccPriorities[qbccMapId] === 'high') qbccBorder = 'border:2px solid #ef4444;';
-                    else if (qbccPriorities[qbccMapId] === 'low') qbccBorder = 'border:2px solid #f97316;';
-                    var amzlStyle = '';
-                    if (arMezzShowAMZL) {
-                        if (amzlChutes[qbccMapId]) { amzlStyle = 'box-shadow:inset 0 0 0 2px #3b82f6;'; }
-                        else { amzlStyle = 'opacity:0.25;'; }
+                    var overlayStyle = '';
+                    if (c !== 9 && arMezzOverlay === 'priority') {
+                        if (qbccPriorities[qbccMapId] === 'high') overlayStyle = 'border:2px solid #ef4444;';
+                        else if (qbccPriorities[qbccMapId] === 'low') overlayStyle = 'border:2px solid #f97316;';
+                    } else if (c !== 9 && arMezzOverlay === 'amzl') {
+                        if (amzlChutes[qbccMapId]) overlayStyle = 'box-shadow:inset 0 0 0 2px #3b82f6;';
+                        else overlayStyle = 'opacity:0.25;';
+                    } else if (c !== 9 && arMezzOverlay === 'perspective') {
+                        if (perspChutes[qbccMapId] === 'hardware') overlayStyle = 'border:2px solid #9ca3af;';
+                        else if (perspChutes[qbccMapId] === 'inactive') overlayStyle = 'border:2px solid #9ca3af;';
+                        else if (perspChutes[qbccMapId] === 'full') overlayStyle = 'border:2px solid #3b82f6;';
+                        else if (perspChutes[qbccMapId] === 'half') overlayStyle = 'border:2px solid #eab308;';
                     }
-                    html += '<td data-armezz-l="' + l + '" data-armezz-c="' + c + '" style="padding:3px 2px;text-align:center;border-radius:3px;cursor:default;' + qbccBorder + amzlStyle + bg + ';' + color + (c===16?';border-right:2px solid var(--h-border2,#3a4a5c)':'') + '">' + (cellDisplay || '') + '</td>';
+                    html += '<td data-armezz-l="' + l + '" data-armezz-c="' + c + '" style="padding:3px 2px;text-align:center;border-radius:3px;cursor:default;' + overlayStyle + bg + ';' + color + (c===16?';border-right:2px solid var(--h-border2,#3a4a5c)':'') + '">' + (cellDisplay || '') + '</td>';
                 }
                 html += '</tr>';
             }
@@ -11872,7 +11953,7 @@ if (k === 'eta') {
             if (c.scanning) { bg = 'background:#166534;'; clr = 'color:#4ade80'; }
             else if (c.idle) { bg = 'background:#ca8a04;'; clr = 'color:#000'; }
             var rate = c.assoc ? c.assoc.scanRate : 0;
-            html += '<div style="padding:3px 6px;margin-bottom:2px;border-radius:4px;' + bg + clr + ';display:flex;gap:6px;align-items:center;font-size:11px">';
+            html += '<div data-panel-chute="' + c.chuteId + '" style="padding:3px 6px;margin-bottom:2px;border-radius:4px;cursor:pointer;' + bg + clr + ';display:flex;gap:6px;align-items:center;font-size:11px">';
             html += '<span style="font-weight:600;min-width:42px">' + c.chuteId + '</span>';
             html += '<span style="min-width:24px;text-align:right">' + c.wip + '</span>';
             if (rate) html += '<span style="min-width:24px;text-align:right;color:var(--h-text,#e8eaf0);font-size:10px">' + rate + '</span>';
@@ -11884,7 +11965,7 @@ if (k === 'eta') {
         html += '<div style="display:flex;gap:6px;font-size:9px;color:var(--h-muted,#7a8a9a);padding:0 6px;margin-bottom:3px"><span style="min-width:42px">Chute</span><span style="min-width:24px;text-align:right">WIP</span><span style="min-width:24px;text-align:right">JPH</span><span>AA</span></div>';
         bot5.forEach(function(c) {
             var rate = c.assoc ? c.assoc.scanRate : 0;
-            html += '<div style="padding:3px 6px;margin-bottom:2px;border-radius:4px;background:#166534;color:#4ade80;display:flex;gap:6px;align-items:center;font-size:11px">';
+            html += '<div data-panel-chute="' + c.chuteId + '" style="padding:3px 6px;margin-bottom:2px;border-radius:4px;cursor:pointer;background:#166534;color:#4ade80;display:flex;gap:6px;align-items:center;font-size:11px">';
             html += '<span style="font-weight:600;min-width:42px">' + c.chuteId + '</span>';
             html += '<span style="min-width:24px;text-align:right">' + c.wip + '</span>';
             if (rate) html += '<span style="min-width:24px;text-align:right;color:var(--h-text,#e8eaf0);font-size:10px">' + rate + '</span>';
@@ -11913,11 +11994,13 @@ if (k === 'eta') {
             arMezzShowRates = !arMezzShowRates;
             renderOBArMezzTable(targetEl);
         });
-        var amzlBtn = document.getElementById('hydra-armezz-amzl');
-        if (amzlBtn) amzlBtn.addEventListener('click', function() {
-            arMezzShowAMZL = !arMezzShowAMZL;
-            renderOBArMezzTable(targetEl);
-        });
+        var amzlBtn = document.getElementById('hydra-armezz-ov-amzl');
+        var prioBtn = document.getElementById('hydra-armezz-ov-priority');
+        var perspBtn = document.getElementById('hydra-armezz-ov-perspective');
+        function ovClick(mode) { return function() { if (!qbccChuteData) return; arMezzOverlay = arMezzOverlay === mode ? '' : mode; renderOBArMezzTable(targetEl); }; }
+        if (amzlBtn) amzlBtn.addEventListener('click', ovClick('amzl'));
+        if (prioBtn) prioBtn.addEventListener('click', ovClick('priority'));
+        if (perspBtn) perspBtn.addEventListener('click', ovClick('perspective'));
         // Tooltip on hover
         var tip = document.createElement('div');
         tip.style.cssText = 'position:fixed;z-index:2147483647;background:#1b2330;border:1px solid #3a4a5c;border-radius:8px;padding:10px 14px;box-shadow:0 4px 16px rgba(0,0,0,.7);font-size:12px;color:#e8eaf0;pointer-events:none;display:none;max-width:220px';
@@ -11930,6 +12013,20 @@ if (k === 'eta') {
             var cd = tipGrid[l] && tipGrid[l][c];
             if (!cd) { tip.style.display = 'none'; return; }
             var h = '<div style="font-weight:700;font-size:13px;margin-bottom:6px">' + cd.chuteId + '</div>';
+            // QBCC route allocation
+            var qMapId = 20000 + c * 100 + l;
+            if (qbccChuteData) {
+                for (var qi = 0; qi < qbccChuteData.length; qi++) {
+                    if (qbccChuteData[qi].chuteId.mapId === qMapId) {
+                        var keys = (qbccChuteData[qi].mapping && qbccChuteData[qi].mapping.sortKeys) || [];
+                        if (keys.length) {
+                            var cleaned = cleanSortKeys(keys);
+                            if (cleaned.length) h += '<div style="color:#60a5fa;font-size:10px;margin-bottom:6px;max-width:190px;word-wrap:break-word">' + cleaned.join('<br>') + '</div>';
+                        }
+                        break;
+                    }
+                }
+            }
             if (cd.assoc) {
                 h += '<div style="display:flex;gap:10px;align-items:center">';
                 h += '<img src="https://internal-cdn.amazon.com/badgephotos.amazon.com/?uid=' + cd.assoc.login + '" style="width:40px;height:40px;border-radius:50%;object-fit:cover;border:2px solid ' + (cd.assoc.scanning ? '#4ade80' : '#fbbf24') + '">';
@@ -11945,10 +12042,63 @@ if (k === 'eta') {
             var r = td.getBoundingClientRect();
             tip.style.left = (r.left + r.width/2 - 80) + 'px';
             tip.style.top = (r.bottom + 6) + 'px';
+            // Outline hovered cell
+            td.style.outline = '2px solid #22d3ee';
+            td.style.outlineOffset = '-2px';
         });
         wrap.addEventListener('mouseout', function(e) {
-            if (!e.target.closest('td[data-armezz-l]')) tip.style.display = 'none';
+            var td = e.target.closest('td[data-armezz-l]');
+            if (td) { td.style.outline = ''; td.style.outlineOffset = ''; }
+            if (!e.relatedTarget || !e.relatedTarget.closest('td[data-armezz-l]')) tip.style.display = 'none';
         });
+        // Panel item hover → highlight table cell + show tooltip
+        wrap.addEventListener('mouseover', function(e) {
+            var panel = e.target.closest('[data-panel-chute]');
+            if (!panel) return;
+            var chuteId = panel.getAttribute('data-panel-chute');
+            // Highlight the panel item
+            panel.style.outline = '2px solid #22d3ee';
+            panel.style.outlineOffset = '-2px';
+            panel._panelSelf = true;
+            // Find matching table cell by chuteId
+            var matchTd = wrap.querySelector('td[data-armezz-l]');
+            var allTds = wrap.querySelectorAll('td[data-armezz-l]');
+            for (var i = 0; i < allTds.length; i++) {
+                var tl = parseInt(allTds[i].getAttribute('data-armezz-l'));
+                var tc = parseInt(allTds[i].getAttribute('data-armezz-c'));
+                var tcd = tipGrid[tl] && tipGrid[tl][tc];
+                if (tcd && tcd.chuteId === chuteId) { matchTd = allTds[i]; break; }
+            }
+            if (matchTd && matchTd.getAttribute('data-armezz-l')) {
+                matchTd.style.outline = '2px solid #22d3ee';
+                matchTd.style.outlineOffset = '-2px';
+                matchTd._panelHighlight = true;
+                // Show tooltip for matched cell
+                var ml = parseInt(matchTd.getAttribute('data-armezz-l')), mc = parseInt(matchTd.getAttribute('data-armezz-c'));
+                var mcd = tipGrid[ml] && tipGrid[ml][mc];
+                if (mcd) {
+                    var mh = '<div style="font-weight:700;font-size:13px;margin-bottom:6px">' + mcd.chuteId + '</div>';
+                    var mMapId = 20000 + mc * 100 + ml;
+                    if (qbccChuteData) { for (var qi = 0; qi < qbccChuteData.length; qi++) { if (qbccChuteData[qi].chuteId.mapId === mMapId) { var mkeys = (qbccChuteData[qi].mapping && qbccChuteData[qi].mapping.sortKeys) || []; if (mkeys.length) { var mc2 = cleanSortKeys(mkeys); if (mc2.length) mh += '<div style="color:#60a5fa;font-size:10px;margin-bottom:6px;max-width:190px;word-wrap:break-word">' + mc2.join('<br>') + '</div>'; } break; } } }
+                    if (mcd.assoc) { mh += '<div style="font-weight:600;font-size:11px">' + mcd.assoc.login + ' \u2014 ' + mcd.assoc.scanRate + ' JPH</div>'; }
+                    tip.innerHTML = mh;
+                    tip.style.display = 'block';
+                    var mr = matchTd.getBoundingClientRect();
+                    tip.style.left = (mr.left + mr.width/2 - 80) + 'px';
+                    tip.style.top = (mr.bottom + 6) + 'px';
+                }
+            }
+        }, true);
+        wrap.addEventListener('mouseout', function(e) {
+            var panel = e.target.closest('[data-panel-chute]');
+            if (panel) {
+                // Remove panel highlights
+                panel.style.outline = ''; panel.style.outlineOffset = '';
+                var allTds = wrap.querySelectorAll('td[data-armezz-l]');
+                for (var i = 0; i < allTds.length; i++) { if (allTds[i]._panelHighlight) { allTds[i].style.outline = ''; allTds[i].style.outlineOffset = ''; allTds[i]._panelHighlight = false; } }
+                tip.style.display = 'none';
+            }
+        }, true);
         wrap._armezzTip = tip; // store ref for cleanup
     }
 
