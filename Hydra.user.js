@@ -1,11 +1,8 @@
 // ==UserScript==
 // @name         Hydra
-// @version      1.3.0
-// @namespace    https://github.com/dylbecke/hydra-userscript
+// @version      1.2
 // @description  Dual-headed load tracker - Inbound (red) & Outbound (blue) on Dock pages
 // @author       eddobrev
-// @updateURL    https://raw.githubusercontent.com/dylbecke/hydra-userscript/main/Hydra.meta.js
-// @downloadURL  https://raw.githubusercontent.com/dylbecke/hydra-userscript/main/Hydra.user.js
 // @match        https://trans-logistics.amazon.com/ssp/dock/hrz/ib*
 // @match        https://trans-logistics.amazon.com/ssp/dock/ib*
 // @match        https://trans-logistics.amazon.com/ssp/dock/hrz/ob*
@@ -28,7 +25,6 @@
 // @connect      qbcc-prod.auth.us-east-1.amazoncognito.com
 // @connect      na.prod.command-center.robotics.amazon.dev
 // @connect      midway-auth.amazon.com
-// @connect      raw.githubusercontent.com
 // @connect      *
 // ==/UserScript==
 
