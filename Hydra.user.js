@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Hydra
-// @version      1.7
-// @description  Dual-headed load tracker - Inbound (red) & Outbound (blue) on Dock pages
+// @version      1.82
+// @description  NASC Ops Chase Tool
 // @author       eddobrev
 // @updateURL    https://raw.githubusercontent.com/dylbecke/hydra-userscript/main/Hydra.user.js
 // @downloadURL  https://raw.githubusercontent.com/dylbecke/hydra-userscript/main/Hydra.user.js
@@ -963,7 +963,7 @@
     // Scoped CSS zoom for a single pane's table(s).
     function applyPaneZoom(wrap, zoom) {
         if (!wrap) return;
-        var tbls = wrap.querySelectorAll('table');
+        var tbls = wrap.querySelectorAll('table, .hydra-table');
         if (autoFitZoom && tbls.length) {
             // Fit-to-pane: measure natural table width at zoom:1, then scale so the
             // widest table fits the pane's available width. Recomputed every render.
@@ -1035,7 +1035,7 @@
                 case 'customstaged': return pullCustomStaged(node);
                 case 'autochutes':   return pullAutoChutes(node);
                 case 'received':     return pullReceived(node);
-                case 'armezz':       return Promise.all([fetchArMezzData(), fetchQbccChuteInfo().catch(function(e){ console.warn('[Hydra QBCC]', e.message || e); })]);
+                case 'armezz':       return Promise.all([fetchArMezzData(), fetchQbccChuteInfo().catch(function(e){ console.warn("[Hydra QBCC]", e.message || e); }), fetchStaffingAssignments().catch(function(e){ console.warn("[Hydra Staffing]", e.message || e); })]);
                 default:             return Promise.resolve();
             }
         }
@@ -1511,6 +1511,7 @@ var hydraTheme = (function(){ try { return localStorage.getItem('hydra_theme') |
         '#hydra-panel{position:fixed;top:40px;right:18px;z-index:99998;width:min(1520px,calc(100vw - 36px));max-height:calc(100vh - 58px);height:calc(100vh - 58px);border-radius:10px;box-shadow:0 6px 32px rgba(0,0,0,.55);display:none;flex-direction:column;font-family:"Amazon Ember",Arial,sans-serif;font-size:13px;color:var(--h-text, #e8eaf0)}',
         '#hydra-panel.open{display:flex}',
         '#hydra-panel:fullscreen{top:0;left:0;width:100vw;max-height:100vh;height:100vh;border-radius:0;border:none}',
+        '#hydra-panel:fullscreen #hydra-settings-overlay,#hydra-panel:fullscreen .hydra-modal{position:absolute;top:0;left:0;width:100%;height:100%;z-index:999999}',
         '#hydra-panel.ib-view{background:linear-gradient(135deg, var(--h-chip-bg, #1a1a1a) 0%, var(--h-grey25, #252525) 50%, var(--h-panel-grad-end, #1f1f1f) 100%);border:1px solid #cc1040}',
         '#hydra-panel.ob-view{background:linear-gradient(135deg, var(--h-chip-bg, #1a1a1a) 0%, var(--h-grey25, #252525) 50%, var(--h-panel-grad-end, #1f1f1f) 100%);border:1px solid #0a6e8a}',
 
@@ -1640,7 +1641,7 @@ var hydraTheme = (function(){ try { return localStorage.getItem('hydra_theme') |
         '#hydra-panel.pu-active #hydra-pu-grid{display:grid}',
         '#hydra-panel.pu-active #hydra-table-wrap{display:none}',
         '#hydra-panel.pu-active #hydra-tabs,#hydra-panel.pu-active #hydra-tab-subtitle,#hydra-panel.pu-active #hydra-chase-filter{display:none}',
-        '.hydra-pane.pu-pane-active{outline:2px solid var(--h-accent, #ff9900);outline-offset:-2px}',
+        '.hydra-pane.pu-pane-active{outline:3px solid var(--h-accent, #ff9900);outline-offset:-3px}',
         '.hydra-pane.pu-view-ib.pu-pane-active{outline-color:#ff2855}',
         '.hydra-pane.pu-view-ob.pu-pane-active{outline-color:#20d4f0}',
         '.hydra-pane.pu-view-ps.pu-pane-active{outline-color:#ffc832}',
@@ -1675,7 +1676,7 @@ var hydraTheme = (function(){ try { return localStorage.getItem('hydra_theme') |
         '#hydra-pu-menu .pum-group{font-size:9px;font-weight:800;letter-spacing:0.5px;text-transform:uppercase;color:var(--h-muted2, #7a8a9a);padding:6px 8px 2px}',
         '#hydra-pu-menu .pum-item{font-size:12px;color:var(--h-text, #e8eaf0);padding:5px 10px;border-radius:4px;cursor:pointer;white-space:nowrap}',
         '#hydra-pu-menu .pum-item:hover{background:var(--h-accent, #ff9900);color:#0a1520}',
-        '.hydra-pane.pu-merge-cand{outline:2px dashed #20d4f0;outline-offset:-2px;box-shadow:inset 0 0 0 9999px rgba(32,212,240,0.10)}',
+        '.hydra-pane.pu-merge-cand{outline:2px dashed #20d4f0;outline-offset:-3px;box-shadow:inset 0 0 0 9999px rgba(32,212,240,0.10)}',
         '.hydra-pane-addmerge{flex-shrink:0;width:20px;height:20px;display:flex;align-items:center;justify-content:center;font-size:15px;line-height:1;color:var(--h-muted2, #7a8a9a);background:transparent;border:1px solid var(--h-border2, #3a4a5c);border-radius:4px;cursor:pointer;opacity:0.7;transition:opacity 0.12s,color 0.12s}',
         '.hydra-pane-ibtabs{display:flex;align-items:center;gap:3px;flex:1 1 auto;min-width:0;overflow-x:auto;overflow-y:hidden;scrollbar-width:thin}',
         '.hydra-pane-ibtabs::-webkit-scrollbar{height:4px}',
@@ -1734,8 +1735,8 @@ var hydraTheme = (function(){ try { return localStorage.getItem('hydra_theme') |
         '.ob-view .hydra-table tbody tr.data-row:hover td{background:rgba(32,212,240,0.25) !important;color:#fff !important}',
         '.ib-view #hydra-table tbody tr.data-row.selected{background:var(--h-sel-ib, #5c0020) !important}',
         '.ob-view #hydra-table tbody tr.data-row.selected{background:var(--h-sel-ob, #0a2a3a) !important}',
-        '.ib-view #hydra-table tbody tr.data-row.drag-preview{outline:2px solid #ff2855;outline-offset:-1px}',
-        '.ob-view #hydra-table tbody tr.data-row.drag-preview{outline:2px solid #20e0f8;outline-offset:-1px}',
+        '.ib-view #hydra-table tbody tr.data-row.drag-preview{outline:3px solid #ff2855;outline-offset:-1px}',
+        '.ob-view #hydra-table tbody tr.data-row.drag-preview{outline:3px solid #20e0f8;outline-offset:-1px}',
         '.ib-view #hydra-table tbody td{padding:5px 12px;text-align:center;white-space:nowrap;color:var(--h-text2, #d0d8e4);border-bottom:1px solid var(--h-grey44, #444444)}',
         '.ob-view #hydra-table tbody td{padding:5px 12px;text-align:center;white-space:nowrap;color:var(--h-text2, #d0d8e4);border-bottom:1px solid #1e2d3d}',
         '.ob-view .hydra-table tbody td{padding:5px 12px;text-align:center;white-space:nowrap;color:var(--h-text2, #d0d8e4);border-bottom:1px solid #1e2d3d}',
@@ -1814,7 +1815,7 @@ var hydraTheme = (function(){ try { return localStorage.getItem('hydra_theme') |
         '.ps-view .hydra-table tbody tr.data-row:hover{background:rgba(255,184,40,0.25) !important}',
         '.ps-view .hydra-table tbody tr.data-row:hover td{background:rgba(255,184,40,0.25) !important;color:#fff !important}',
         '.ps-view #hydra-table tbody tr.data-row.selected{background:var(--h-sel-ps, #3d2a00) !important}',
-        '.ps-view #hydra-table tbody tr.data-row.drag-preview{outline:2px solid var(--h-ps-accent2, #ffb828);outline-offset:-1px}',
+        '.ps-view #hydra-table tbody tr.data-row.drag-preview{outline:3px solid var(--h-ps-accent2, #ffb828);outline-offset:-1px}',
         '.ps-view #hydra-table tbody td{padding:5px 12px;text-align:center;white-space:nowrap;color:var(--h-text2, #d0d8e4);border-bottom:1px solid var(--h-grey44, #444444)}',
         '.ps-view .hydra-table tbody td{padding:5px 12px;text-align:center;white-space:nowrap;color:var(--h-text2, #d0d8e4);border-bottom:1px solid var(--h-grey44, #444444)}',
         '.ps-view #hydra-empty{color:var(--h-ps-accent, #ffc832)}',
@@ -1976,7 +1977,8 @@ var hydraTheme = (function(){ try { return localStorage.getItem('hydra_theme') |
             '#hydra-door-panel{--dd-scale:1;background:var(--h-bg2, #16202c);border:1px solid var(--h-border, #2a3a4c);border-radius:4px;padding:3px 4px;margin:0 0 4px 0;display:flex;gap:2px;flex-wrap:wrap;align-items:stretch;max-width:100%;box-sizing:border-box}',
         '.hydra-door-cell{position:relative;width:calc(44px * var(--dd-scale));min-height:calc(30px * var(--dd-scale));border:1px solid var(--h-border, #2a3a4c);border-radius:3px;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:1px 2px;box-sizing:border-box;background:var(--h-bg1, #0e1620);line-height:1.05}',
         '.hydra-door-num{font-size:calc(9px * var(--dd-scale));color:var(--h-doornum, #8a9ba8);font-weight:600;line-height:1}',
-        '.hydra-door-body{font-size:calc(9px * var(--dd-scale));font-weight:700;display:flex;align-items:center;justify-content:center;text-align:center;line-height:1;width:100%;margin-top:1px}',
+        '.hydra-door-body{font-size:calc(9px * var(--dd-scale));font-weight:700;display:flex;align-items:center;justify-content:center;text-align:center;line-height:1;width:100%;margin-top:1px;max-height:calc(12px * var(--dd-scale));overflow:hidden}',
+        '.hydra-door-cell:hover .hydra-door-body{max-height:none;overflow:visible}',
         '.hydra-door-body.dd-route{color:var(--h-text, #e8eaf0);font-size:calc(9px * var(--dd-scale));word-break:break-all;letter-spacing:-0.2px}',
         '.hydra-door-body.dd-route .dd-route-ib{color:#ff2855}',
         '.hydra-door-body.dd-route .dd-route-ib-xd{color:#66bb6a}',
@@ -2108,14 +2110,20 @@ var hydraTheme = (function(){ try { return localStorage.getItem('hydra_theme') |
     // Returns null when SLA is disabled or no CPT windows are selected.
     function computeSlaThresholdMs() {
         if (!cptSlaEnabled) return null;
-        if (!selectedCptIds || !selectedCptIds.length) return null;
         var _slaH = (typeof cptSlaHours === 'number' && cptSlaHours > 0) ? cptSlaHours : 4;
         var _lastEnd = null;
-        selectedCptIds.forEach(function(id){
-            var _d = getCptPresetDates(id);
-            var _ems = parseCptMs(_d.end);
-            if (_ems !== null && (_lastEnd === null || _ems > _lastEnd)) _lastEnd = _ems;
-        });
+        if (selectedCptIds && selectedCptIds.length) {
+            selectedCptIds.forEach(function(id){
+                var _d = getCptPresetDates(id);
+                var _ems = parseCptMs(_d.end);
+                if (_ems !== null && (_lastEnd === null || _ems > _lastEnd)) _lastEnd = _ems;
+            });
+        }
+        // Fallback: use the CPT end input directly if no window-based end found
+        if (_lastEnd === null) {
+            var _endEl = document.getElementById('hydra-cpt-end-input');
+            if (_endEl && _endEl.value) _lastEnd = parseCptMs(_endEl.value);
+        }
         if (_lastEnd === null) return null;
         return _lastEnd - _slaH * 3600000;
     }
@@ -4880,11 +4888,11 @@ var hydraTheme = (function(){ try { return localStorage.getItem('hydra_theme') |
             '<button id="hydra-auto-btn" class="ar-off">Auto Off</button>' +
             '<button id="hydra-settings-btn">&#x2699; Settings</button>' +
             '<button id="hydra-csv-btn" title="Export the current table to CSV">&#11015; CSV</button>' +
-            '<button id="hydra-fs-btn" title="Fullscreen (press any key to exit)" style="border:none;border-radius:4px;padding:5px 8px;font-size:12px;cursor:pointer;background:var(--h-bg2,#16202c);color:var(--h-text,#e8eaf0);border:1px solid var(--h-border2,#3a4a5c)">&#x26F6;</button>' +
             '<button id="hydra-ai-btn" title="Ask Hydra AI" style="border:none;border-radius:4px;padding:5px 10px;font-size:12px;font-weight:700;cursor:pointer;background:linear-gradient(135deg,#6b21a8,#2563eb);color:#fff">&#129504; AI</button>' +
             '<span id="hydra-indicators" style="display:inline-flex;gap:6px;align-items:center;margin:0 6px"><span id="hydra-ind-yms" class="hydra-indicator" title="YMS Dock Door">YMS</span><span id="hydra-ind-sesame" class="hydra-indicator" title="Sesame Gate PA">PA</span><span id="hydra-ind-refresh" class="hydra-indicator" style="cursor:pointer;color:var(--h-muted2, #7a8a9a)" title="Refresh YMS + PA connections">&#8635;</span></span>' +
             '<span id="hydra-status"></span>' +
             
+            '<button id="hydra-fs-btn" title="Fullscreen" style="border:none;border-radius:4px;padding:5px 8px;font-size:14px;cursor:pointer;background:none;color:var(--h-muted, #aab4c0);margin-left:auto">&#x26F6;</button>' +
             '<button id="hydra-close-btn">✕</button>' +
             '</div>' +
             '<div id="hydra-search-bar"><input id="hydra-search-input" type="text" placeholder="Search VRID, route, door, status..."><button id="hydra-search-clear">&#x2715;</button><span id="hydra-search-count"></span><span id="hydra-sla-indicator" style="display:none;align-items:center;gap:4px;font-size:11px;font-weight:700;color:#ff4070;white-space:nowrap;padding:2px 8px;border:1px solid #cc1040;border-radius:4px" title="Trailers arriving after this time are not heat-colored (CPT SLA suppression)"></span><span id="hydra-cptperf-window-wrap" style="display:none;align-items:center;gap:4px;font-size:11px;color:var(--h-muted, #aab4c0);white-space:nowrap">SDT Window:<input id="hydra-cptperf-start" type="text" placeholder="MM/DD/YYYY HH:MM" style="width:135px;background:var(--h-bg2, #16202c);border:1px solid var(--h-border2, #3a4a5c);border-radius:4px;color:var(--h-text, #e8eaf0);padding:3px 6px;font-size:11px"><span style="opacity:0.6">to</span><input id="hydra-cptperf-end" type="text" placeholder="MM/DD/YYYY HH:MM" style="width:135px;background:var(--h-bg2, #16202c);border:1px solid var(--h-border2, #3a4a5c);border-radius:4px;color:var(--h-text, #e8eaf0);padding:3px 6px;font-size:11px"></span><button id="hydra-obv-selectall" style="display:none;align-items:center;gap:4px;font-size:11px;font-weight:700;color:var(--h-ob-accent, #20d4f0);background:transparent;border:1px solid var(--h-ob-accent, #20d4f0);border-radius:4px;padding:2px 8px;cursor:pointer;white-space:nowrap" title="Select all routes/CPTs visible in the current filter">Select all</button><button id="hydra-div-copy-chutes-hdr" style="display:none;align-items:center;gap:4px;font-size:11px;font-weight:700;color:var(--h-ob-accent, #20d4f0);background:transparent;border:1px solid var(--h-ob-accent, #20d4f0);border-radius:4px;padding:2px 10px;cursor:pointer;white-space:nowrap" title="Copy non-zero diverter chute IDs (space-separated)">\u2398 Copy chutes</button><label id="hydra-obv-selonly-wrap" style="display:none;align-items:center;gap:4px;font-size:11px;color:var(--h-muted, #aab4c0);cursor:pointer;white-space:nowrap" title="Show only selected routes"><input type="checkbox" id="hydra-obv-selonly" style="cursor:pointer">Selected only</label><select id="hydra-1d-source" style="display:none;background:var(--h-bg2, #16202c);border:1px solid var(--h-border2, #3a4a5c);border-radius:4px;color:var(--h-text, #e8eaf0);padding:3px 8px;font-size:12px;font-weight:600" title="Custom View source"><option value="stacked">Stacked</option><option value="staged">Staged</option><option value="inFacilityReceived">Received</option><option value="diverted">Diverted</option></select><button id="hydra-ac-util-toggle" style="display:none;align-items:center;gap:4px;font-size:11px;font-weight:700;border-radius:4px;padding:3px 10px;cursor:pointer;white-space:nowrap;border:1px solid var(--h-border2, #3a4a5c);background:var(--h-bg2, #16202c);color:var(--h-muted, #aab4c0)" title="Toggle Chute Matrix cells between CPT package counts and container utilization %">CPT Packages</button><div id="hydra-bar-zoom"><input type="range" id="hydra-bar-zoom-slider" min="50" max="250" step="1" value="100"><span id="hydra-bar-zoom-value">100%</span><button id="hydra-bar-autofit-btn" type="button" title="Auto-fit zoom" style="margin-left:4px;font-size:12px;line-height:1;padding:2px 6px;cursor:pointer;border:1px solid var(--h-border2, #3a4a5c);background:transparent;color:var(--h-muted, #aab4c0);border-radius:4px">Auto Zoom</button></div></div>' +
@@ -6349,7 +6357,7 @@ var hydraTheme = (function(){ try { return localStorage.getItem('hydra_theme') |
             return '<div class="' + cellCls + '" title="' + titleTxt + '">' +
                    sdtWarnHtml + pendingMoveHtml +
                    '<div class="hydra-door-num">' + num + '</div>' +
-                   '<div class="' + bodyCls + '">' + bodyHtml + '</div>' +
+                   '<div class="' + bodyCls + '" data-full-route="1">' + bodyHtml + '</div>' +
                    '</div>';
         }).join('');
         html = '<button id="hydra-door-collapse" style="position:absolute;top:2px;right:4px;background:none;border:none;color:var(--h-muted,#aab4c0);font-size:10px;cursor:pointer;padding:0 4px;z-index:1" title="Collapse">\u25B2</button>' + html;
@@ -9924,7 +9932,7 @@ var hydraTheme = (function(){ try { return localStorage.getItem('hydra_theme') |
                  + '<div style="font-size:18px;font-weight:800;color:' + (color || txt) + '">' + val + '</div>'
                  + '<div style="font-size:10px;color:' + muted + ';text-transform:uppercase;letter-spacing:.5px;margin-top:2px">' + label + '</div></div>';
         };
-        var html = '<div id="hydra-table" style="width:max-content;transform-origin:top left">';
+        var html = '<div id="hydra-table" class="hydra-table" style="width:max-content;transform-origin:top left">';
         html += '<div style="display:flex;gap:8px;margin-bottom:10px;flex-wrap:wrap">'
             + tile('Routes', d.routes.length, accent)
             + tile('Routes at Risk', (d.routesAtRisk || 0), (d.routesAtRisk || 0) > 0 ? '#ef5350' : '#4caf50')
@@ -10403,7 +10411,7 @@ var hydraTheme = (function(){ try { return localStorage.getItem('hydra_theme') |
         var gh = ch - pad.top - pad.bottom;
 
         if (!canvasOnly) {
-        var html = '<div style="padding:8px 16px;display:flex;flex-direction:column;align-items:center;height:100%">';
+        var html = '<div class="hydra-table" style="padding:8px 16px;display:flex;flex-direction:column;align-items:center;height:100%">';
         html += '<div style="display:flex;align-items:center;gap:12px;margin-bottom:12px">';
         html += '<label style="font-size:12px;color:var(--h-muted,#aab4c0)">Flow Rate:</label>';
         html += '<input id="hydra-volavail-rate" type="number" min="1" step="' + (volAvailRateMode === '5m' ? '10' : '100') + '" value="' + (volAvailRateMode === '5m' ? Math.round(volAvailFlowRate / 12) : volAvailFlowRate) + '" style="width:70px;background:var(--h-bg2,#16202c);border:1px solid var(--h-border2,#3a4a5c);border-radius:4px;color:var(--h-text,#e8eaf0);padding:4px 8px;font-size:12px">';
@@ -11015,8 +11023,10 @@ if (k === 'eta') {
         if (!_show) { el.style.display = 'none'; return; }
         var ms = computeSlaThresholdMs();
         if (ms === null) {
-            // Enabled but no CPT window selected -> nothing to base the cutoff on.
-            el.textContent = 'SLA ' + cptSlaHours + 'h (select CPT)';
+            // Enabled but no CPT window or date input -> nothing to base the cutoff on.
+            var _endEl = document.getElementById('hydra-cpt-end-input');
+            var _hasEnd = _endEl && _endEl.value && _endEl.value.trim();
+            el.textContent = 'SLA ' + cptSlaHours + 'h' + (_hasEnd ? '' : ' (select CPT)');
         } else {
             var tzOff = getEffectiveTzOffset();
             var d = new Date(ms + tzOff * 3600000);
@@ -11578,8 +11588,72 @@ if (k === 'eta') {
     var arMezzMinutes = 15; // 5, 15, or 30
     var arMezzShowRates = false; // false = WIP, true = scan rates
     var arMezzOverlay = ''; // '' | 'amzl' | 'priority' | 'perspective'
+    var arMezzAssignState = null; // null or { login, srcLane, srcChute }
     var qbccChuteData = null; // cached QBCC queryChuteInfo response
     var qbccPriorities = {}; // mapId -> 'high'|'low'
+
+    function saveStaffingAssignment(nodeId, associateId, workstationGuid) {
+        var wattBase = 'https://na.prod.wattwebsite.sorttech.amazon.dev';
+        var hdrs = { 'Origin': 'https://stem-na.corp.amazon.com', 'Referer': 'https://stem-na.corp.amazon.com/' };
+        var mutation = 'mutation saveStaffingAssignment($nodeId: String!, $associateId: String!, $workstationId: String, $locked: Boolean!) {\n  saveStaffingAssignment(nodeId: $nodeId, associateId: $associateId, workstationId: $workstationId, locked: $locked) {\n    executionSuccess\n    __typename\n  }\n}';
+        return new Promise(function(resolve, reject) {
+            GM_xmlhttpRequest({
+                method: 'GET', url: wattBase + '/csrfToken', headers: hdrs, withCredentials: true,
+                onload: function(r1) {
+                    var csrf = (r1.responseText || '').trim();
+                    if (!csrf || r1.status !== 200) { reject(new Error('CSRF failed')); return; }
+                    GM_xmlhttpRequest({
+                        method: 'POST', url: wattBase + '/graphql',
+                        headers: Object.assign({ 'Content-Type': 'application/json', 'Accept': 'application/json', 'anti-csrftoken-a2z': csrf }, hdrs),
+                        data: JSON.stringify({ query: mutation, operationName: 'saveStaffingAssignment', variables: { nodeId: nodeId, associateId: associateId, workstationId: workstationGuid, locked: false } }),
+                        withCredentials: true,
+                        onload: function(r2) {
+                            try {
+                                var j = JSON.parse(r2.responseText);
+                                if (j.data && j.data.saveStaffingAssignment && j.data.saveStaffingAssignment.executionSuccess) resolve(true);
+                                else reject(new Error('Assignment failed: ' + r2.responseText.substring(0, 200)));
+                            } catch(e) { reject(new Error('Parse error: ' + e.message)); }
+                        },
+                        onerror: function() { reject(new Error('Network error')); }
+                    });
+                },
+                onerror: function() { reject(new Error('CSRF request failed')); }
+            });
+        });
+    }
+
+    var staffingAssignments = null; // cached getStaffingAssignments response
+
+    function fetchStaffingAssignments() {
+        var node = (typeof mdw5Settings !== 'undefined' && mdw5Settings.node) ? mdw5Settings.node.toUpperCase() : 'ORD9';
+        var wattBase = 'https://na.prod.wattwebsite.sorttech.amazon.dev';
+        var hdrs = { 'Origin': 'https://stem-na.corp.amazon.com', 'Referer': 'https://stem-na.corp.amazon.com/' };
+        var query = 'query GetStaffingAssignments($nodeId: String!) {\n  getStaffingAssignments(nodeId: $nodeId) {\n    nodeId\n    associateId\n    workstationId\n    processSegmentId\n    source\n    locked\n    lastUpdateUser\n    updatedTime\n    associate {\n      associateId\n      fullName\n      __typename\n    }\n    __typename\n  }\n}';
+        return new Promise(function(resolve, reject) {
+            GM_xmlhttpRequest({
+                method: 'GET', url: wattBase + '/csrfToken', headers: hdrs, withCredentials: true,
+                onload: function(r1) {
+                    var csrf = (r1.responseText || '').trim();
+                    if (!csrf || r1.status !== 200) { reject(new Error('CSRF failed')); return; }
+                    GM_xmlhttpRequest({
+                        method: 'POST', url: wattBase + '/graphql',
+                        headers: Object.assign({ 'Content-Type': 'application/json', 'Accept': 'application/json', 'anti-csrftoken-a2z': csrf }, hdrs),
+                        data: JSON.stringify({ query: query, operationName: 'GetStaffingAssignments', variables: { nodeId: node } }),
+                        withCredentials: true,
+                        onload: function(r2) {
+                            try {
+                                var j = JSON.parse(r2.responseText);
+                                staffingAssignments = j.data.getStaffingAssignments || [];
+                                resolve(staffingAssignments);
+                            } catch(e) { reject(new Error('Staffing parse: ' + e.message)); }
+                        },
+                        onerror: function() { reject(new Error('Staffing fetch failed')); }
+                    });
+                },
+                onerror: function() { reject(new Error('CSRF failed')); }
+            });
+        });
+    }
 
     function fetchQbccChuteInfo() {
         var node = (typeof mdw5Settings !== 'undefined' && mdw5Settings.node) ? mdw5Settings.node : 'ORD9';
@@ -11674,7 +11748,7 @@ if (k === 'eta') {
 
     function fetchArMezzData() {
         var node = (typeof mdw5Settings !== 'undefined' && mdw5Settings.node) ? mdw5Settings.node : 'ORD9';
-        var query = 'query getWorkstationDataWindow($nodeId: String!, $minutes: Int!) {\n  workstationDataWindow(nodeId: $nodeId, minutes: $minutes) {\n    workstationData {\n      workstation {\n        workstationAlias\n        workstationType\n      }\n      workstationStates {\n        windowStartTime\n        incomingCount { value }\n        workInProgressCount { value }\n        associateData { perAssociateData { associateId scanCount lastScanTime signedIn } }\n      }\n    }\n  }\n}';
+        var query = 'query getWorkstationDataWindow($nodeId: String!, $minutes: Int!) {\n  workstationDataWindow(nodeId: $nodeId, minutes: $minutes) {\n    workstationData {\n      workstation {\n        workstationAlias\n        workstationType\n        workstationId\n      }\n      workstationStates {\n        windowStartTime\n        incomingCount { value }\n        workInProgressCount { value }\n        associateData { perAssociateData { associateId scanCount lastScanTime signedIn } }\n      }\n    }\n  }\n}';
         var wattBase = 'https://na.prod.wattwebsite.sorttech.amazon.dev';
         var hdrs = { 'Origin': 'https://stem-na.corp.amazon.com', 'Referer': 'https://stem-na.corp.amazon.com/' };
         return new Promise(function(resolve, reject) {
@@ -11707,6 +11781,8 @@ if (k === 'eta') {
         if (!wrap) return;
         // Cleanup old tooltip
         if (wrap._armezzTip) { wrap._armezzTip.remove(); wrap._armezzTip = null; }
+        if (wrap._armezzAssignBar) { wrap._armezzAssignBar.remove(); wrap._armezzAssignBar = null; }
+        if (wrap._armezzClickHandler) { wrap.removeEventListener('click', wrap._armezzClickHandler); }
 
         if (!arMezzData) {
             wrap.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:100%;position:absolute;inset:0;color:var(--h-muted,#aab4c0);font-size:13px;flex-direction:column;gap:8px"><div style="font-size:24px">\uD83E\uDD16</div><div>Press <strong>Refresh</strong> to load AR Mezz data</div></div>';
@@ -11806,7 +11882,7 @@ if (k === 'eta') {
                 var a0Scans = globalAssocScans[a0.associateId] || 0;
                 assocDetail = { login: a0.associateId, scanRate: Math.round(a0Scans * (60 / arMezzMinutes)), scanning: a0.scanCount > 0, inactiveMin: inactiveMin };
             }
-            grid[lane][chute] = { wip: wip, scanning: scanning, idle: idle, assocCount: assocs.length, scans: chuteScans, chuteId: chuteId, assoc: assocDetail };
+            grid[lane][chute] = { wip: wip, scanning: scanning, idle: idle, assocCount: assocs.length, scans: chuteScans, chuteId: chuteId, assoc: assocDetail, wsId: ws.workstation.workstationId || null };
             totalWip += wip;
         });
 
@@ -11816,7 +11892,7 @@ if (k === 'eta') {
 
         // Build set of AMZL (CYC) chute mapIds from QBCC data
         var amzlChutes = {};
-        if (arMezzOverlay === 'amzl' && qbccChuteData) {
+        if ((arMezzOverlay === 'amzl' || arMezzOverlay === 'serpenteye') && qbccChuteData) {
             qbccChuteData.forEach(function(ci) {
                 var keys = (ci.mapping && ci.mapping.sortKeys) || [];
                 var hasCyc = keys.some(function(sk) { return sk.stackingFilter && sk.stackingFilter.indexOf('CYC') !== -1; });
@@ -11825,7 +11901,7 @@ if (k === 'eta') {
         }
         // Build perspective map (half-full / full / hardware / inactive) from QBCC data
         var perspChutes = {}; // mapId -> 'full' | 'half' | 'hardware' | 'inactive'
-        if (arMezzOverlay === 'perspective' && qbccChuteData) {
+        if ((arMezzOverlay === 'perspective' || arMezzOverlay === 'serpenteye') && qbccChuteData) {
             qbccChuteData.forEach(function(ci) {
                 var codes = (ci.state.statusCodes || []).map(function(sc) { return sc.statusCode; });
                 var hasHardware = codes.indexOf('COMMON:DISABLED_BY_HARDWARE') !== -1;
@@ -11841,7 +11917,7 @@ if (k === 'eta') {
         var sections = [[1,7],[8,15],[16,21]];
         var html = '<div style="display:flex;justify-content:center;width:100%"><div class="hydra-table" style="padding:16px 12px;font-size:12px">';
         // Header stat cards
-        html += '<div style="display:flex;gap:12px;margin-bottom:20px;align-items:stretch;flex-wrap:wrap">';
+        html += '<div style="display:flex;gap:12px;margin-bottom:20px;align-items:stretch;flex-wrap:wrap;margin-left:152px">';
         var fiveMinFlow = Math.round(totalAssoc * avgScanRate / 12);
         var stats = [
             { label: 'Associates', value: totalAssoc, color: '#4ade80' },
@@ -11859,7 +11935,7 @@ if (k === 'eta') {
         });
         html += '</div>';
         // Controls row below stat cards
-        html += '<div style="display:flex;gap:6px;margin-bottom:16px;justify-content:center;align-items:center">';
+        html += '<div style="display:flex;gap:6px;margin-bottom:16px;justify-content:center;align-items:center;margin-left:152px">';
         html += '<select id="hydra-armezz-minutes" style="background:var(--h-bg2,#16202c);border:1px solid var(--h-border2,#3a4a5c);border-radius:4px;color:var(--h-text,#e8eaf0);padding:4px 10px;font-size:12px;cursor:pointer">';
         html += '<option value="5"' + (arMezzMinutes===5?' selected':'') + '>5 min</option>';
         html += '<option value="15"' + (arMezzMinutes===15?' selected':'') + '>15 min</option>';
@@ -11867,7 +11943,7 @@ if (k === 'eta') {
         html += '</select>';
         html += '<button id="hydra-armezz-toggle" style="background:var(--h-bg2,#16202c);border:1px solid var(--h-border2,#3a4a5c);border-radius:4px;color:var(--h-text,#e8eaf0);padding:4px 8px;font-size:11px;cursor:pointer;white-space:nowrap;font-weight:600">' + (arMezzShowRates ? 'Show WIP' : 'Show Scan Rates') + '</button>';
         html += '<span style="width:1px;height:16px;background:var(--h-border2,#3a4a5c)"></span>';
-        var ovBtns = [{id:'priority',label:'Priority'},{id:'amzl',label:'AMZL'},{id:'perspective',label:'Perspective'}];
+        var ovBtns = [{id:'priority',label:'Priority'},{id:'amzl',label:'AMZL'},{id:'perspective',label:'Perspective'},{id:'serpenteye',label:'Omnisight'}];
         var qbccDisabled = !qbccChuteData;
         ovBtns.forEach(function(b) {
             var active = arMezzOverlay === b.id;
@@ -11876,8 +11952,57 @@ if (k === 'eta') {
         });
         html += '</div>';
 
-        // Flex row: tables left, side panel right
+        // Flex row: left panel (moves), tables center, right panel (top5/legend)
         html += '<div style="display:flex;gap:0;align-items:flex-start">';
+        // Left panel: Active Moves
+        html += '<div style="min-width:140px;max-width:180px;padding-right:12px;font-size:10px">';
+        html += '<div style="font-weight:700;color:#a78bfa;margin-bottom:6px;font-size:11px">Active Moves</div>';
+        if (staffingAssignments && qbccChuteData) {
+            // Build guid->mapId lookup from QBCC
+            var guidToMapId = {};
+            qbccChuteData.forEach(function(ci) { guidToMapId[ci.chuteId.workcellGuid] = ci.chuteId.mapId; });
+            // Also add WATT workstationIds from grid (may be different GUIDs)
+            for (var gl = 1; gl <= 21; gl++) { if (grid[gl]) for (var gc = 1; gc <= 16; gc++) { var gcd = grid[gl][gc]; if (gcd && gcd.wsId) guidToMapId[gcd.wsId] = 20000 + gc * 100 + gl; } }
+            // Filter to chute assignments only (workstationId not null)
+            var chuteAssignments = staffingAssignments.filter(function(a) { return a.workstationId; });
+            // Cross-reference with grid to find in-transit (not yet at assigned chute)
+            var activeMoves = [];
+            chuteAssignments.forEach(function(a) {
+                var destMapId = guidToMapId[a.workstationId] || null;
+                var destLabel = destMapId ? String(destMapId) : a.workstationId.substring(0, 8);
+                // Check if associate is already at destination
+                var atDest = false;
+                if (destMapId) {
+                    var destLane = destMapId % 100;
+                    var destChute = Math.floor((destMapId - 20000) / 100);
+                    if (grid[destLane] && grid[destLane][destChute] && grid[destLane][destChute].assoc && grid[destLane][destChute].assoc.login === a.associateId) atDest = true;
+                }
+                if (!atDest && destMapId) {
+                    // Find current location from grid
+                    var curLoc = null;
+                    for (var sl = 1; sl <= 21 && !curLoc; sl++) { if (grid[sl]) for (var sc = 1; sc <= 16; sc++) { var scd = grid[sl][sc]; if (scd && scd.assoc && scd.assoc.login === a.associateId) { curLoc = scd.chuteId; break; } } }
+                    activeMoves.push({ login: a.associateId, name: a.associate ? a.associate.fullName : a.associateId, dest: destLabel, destMapId: destMapId, curLoc: curLoc, source: a.source, user: a.lastUpdateUser, time: a.updatedTime });
+                }
+            });
+            // Sort by most recent first
+            activeMoves.sort(function(a, b) { return b.time - a.time; });
+            if (activeMoves.length === 0) {
+                html += '<div style="color:var(--h-muted,#7a8a9a);font-style:italic">No pending moves</div>';
+            } else {
+                html += '<div style="color:var(--h-muted,#7a8a9a);margin-bottom:4px">' + activeMoves.length + ' in transit</div>';
+                activeMoves.forEach(function(mv) {
+                    var ago = Math.round((Date.now() - mv.time) / 60000);
+                    html += '<div data-move-dest="' + mv.destMapId + '" data-move-src="' + (mv.curLoc || '') + '" style="margin-bottom:5px;padding:3px 5px;border-radius:4px;border-left:3px solid #a78bfa;background:rgba(168,85,247,0.08);cursor:pointer">';
+                    html += '<div style="font-weight:600;color:var(--h-text,#e8eaf0)">' + mv.login + '</div>';
+                    html += '<div style="color:#a78bfa">' + (mv.curLoc ? mv.curLoc + ' ' : '') + '\u2192 ' + mv.dest + '</div>';
+                    html += '<div style="color:var(--h-muted,#7a8a9a)">' + ago + 'm ago \u2022 ' + mv.user + '</div>';
+                    html += '</div>';
+                });
+            }
+        } else {
+            html += '<div style="color:var(--h-muted,#7a8a9a);font-style:italic">Loading...</div>';
+        }
+        html += '</div>'; // end left panel
         html += '<div>'; // tables column
 
         sections.forEach(function(sec) {
@@ -11898,11 +12023,31 @@ if (k === 'eta') {
             for (var l = startL; l <= endL; l++) {
                 var laneWip = 0, laneAssoc = 0;
                 if (grid[l]) for (var c2 = 1; c2 <= 16; c2++) { var cc = grid[l] && grid[l][c2]; if (cc) { laneWip += cc.wip; if (cc.assocCount) laneAssoc++; } }
+                // Determine if this lane is the first of a pair (2/3, 4/5, 6/7, 8/9, 10/11, 12/13, 14/15, 16/17, 18/19, 20/21)
+                var isPairFirst = (l >= 2 && l % 2 === 0 && l + 1 <= endL);
+                var isPairSecond = (l >= 3 && l % 2 === 1 && l !== startL);
+                var pairWip = 0, pairAssoc = 0;
+                if (isPairFirst) {
+                    // Combine stats for this lane and next
+                    var l2 = l + 1;
+                    pairWip = laneWip;
+                    pairAssoc = laneAssoc;
+                    if (grid[l2]) for (var c3 = 1; c3 <= 16; c3++) { var cc2 = grid[l2] && grid[l2][c3]; if (cc2) { pairWip += cc2.wip; if (cc2.assocCount) pairAssoc++; } }
+                }
                 html += '<tr style="border-bottom:1px solid rgba(255,255,255,0.05)">';
                 html += '<td style="padding:3px 8px;font-weight:600;white-space:nowrap;color:var(--h-text,#e8eaf0);border-left:2px solid var(--h-border2,#3a4a5c)">Lane ' + l + '</td>';
-                html += '<td style="padding:3px 6px;text-align:center;color:var(--h-muted,#aab4c0)">' + laneWip + '</td>';
-                html += '<td style="padding:3px 6px;text-align:center;color:var(--h-muted,#aab4c0)">' + laneAssoc + '</td>';
-                html += '<td style="padding:3px 6px;text-align:center;color:var(--h-muted,#aab4c0);border-right:2px solid var(--h-border2,#3a4a5c)">' + (laneAssoc > 0 ? Math.round(laneWip/laneAssoc) : 0) + '</td>';
+                if (isPairFirst) {
+                    html += '<td rowspan="2" style="padding:3px 6px;text-align:center;vertical-align:middle;color:var(--h-muted,#aab4c0);font-size:14px;font-weight:700">' + pairWip + '</td>';
+                    html += '<td rowspan="2" style="padding:3px 6px;text-align:center;vertical-align:middle;color:var(--h-muted,#aab4c0);font-size:14px;font-weight:700">' + pairAssoc + '</td>';
+                    html += '<td rowspan="2" style="padding:3px 6px;text-align:center;vertical-align:middle;color:var(--h-muted,#aab4c0);font-size:14px;font-weight:700;border-right:2px solid var(--h-border2,#3a4a5c)">' + (pairAssoc > 0 ? Math.round(pairWip/pairAssoc) : 0) + '</td>';
+                } else if (isPairSecond) {
+                    // Skip - already covered by rowspan from previous row
+                } else {
+                    // Solo lane (lane 1, or unpaired)
+                    html += '<td style="padding:3px 6px;text-align:center;color:var(--h-muted,#aab4c0)">' + laneWip + '</td>';
+                    html += '<td style="padding:3px 6px;text-align:center;color:var(--h-muted,#aab4c0)">' + laneAssoc + '</td>';
+                    html += '<td style="padding:3px 6px;text-align:center;color:var(--h-muted,#aab4c0);border-right:2px solid var(--h-border2,#3a4a5c)">' + (laneAssoc > 0 ? Math.round(laneWip/laneAssoc) : 0) + '</td>';
+                }
                 html += '<td style="width:12px"></td>';
                 for (var c = 1; c <= 16; c++) {
                     var cd = grid[l] && grid[l][c];
@@ -11919,16 +12064,25 @@ if (k === 'eta') {
                     var qbccMapId = 20000 + c * 100 + l;
                     var overlayStyle = '';
                     if (c !== 9 && arMezzOverlay === 'priority') {
-                        if (qbccPriorities[qbccMapId] === 'high') overlayStyle = 'border:2px solid #ef4444;';
-                        else if (qbccPriorities[qbccMapId] === 'low') overlayStyle = 'border:2px solid #f97316;';
+                        if (qbccPriorities[qbccMapId] === 'high') overlayStyle = 'outline:3px solid #ef4444;outline-offset:-3px;';
+                        else if (qbccPriorities[qbccMapId] === 'low') overlayStyle = 'outline:2px dashed #f97316;outline-offset:-2px;';
                     } else if (c !== 9 && arMezzOverlay === 'amzl') {
                         if (amzlChutes[qbccMapId]) overlayStyle = 'box-shadow:inset 0 0 0 2px #3b82f6;';
                         else overlayStyle = 'opacity:0.25;';
                     } else if (c !== 9 && arMezzOverlay === 'perspective') {
-                        if (perspChutes[qbccMapId] === 'hardware') overlayStyle = 'border:2px solid #9ca3af;';
-                        else if (perspChutes[qbccMapId] === 'inactive') overlayStyle = 'border:2px solid #9ca3af;';
-                        else if (perspChutes[qbccMapId] === 'full') overlayStyle = 'border:2px solid #3b82f6;';
-                        else if (perspChutes[qbccMapId] === 'half') overlayStyle = 'border:2px solid #eab308;';
+                        if (perspChutes[qbccMapId] === 'hardware') overlayStyle = 'outline:3px solid #9ca3af;outline-offset:-3px;';
+                        else if (perspChutes[qbccMapId] === 'inactive') overlayStyle = 'outline:3px solid #9ca3af;outline-offset:-3px;';
+                        else if (perspChutes[qbccMapId] === 'full') overlayStyle = 'outline:3px solid #3b82f6;outline-offset:-3px;';
+                        else if (perspChutes[qbccMapId] === 'half') overlayStyle = 'outline:3px solid #eab308;outline-offset:-3px;';
+                    } else if (c !== 9 && arMezzOverlay === 'serpenteye') {
+                        // Priority overrides perspective
+                        if (qbccPriorities[qbccMapId] === 'high') overlayStyle = 'outline:3px solid #ef4444;outline-offset:-3px;';
+                        else if (qbccPriorities[qbccMapId] === 'low') overlayStyle = 'outline:2px dashed #f97316;outline-offset:-2px;';
+                        else if (perspChutes[qbccMapId] === 'hardware' || perspChutes[qbccMapId] === 'inactive') overlayStyle = 'outline:3px solid #9ca3af;outline-offset:-3px;';
+                        else if (perspChutes[qbccMapId] === 'full') overlayStyle = 'outline:3px solid #3b82f6;outline-offset:-3px;';
+                        else if (perspChutes[qbccMapId] === 'half') overlayStyle = 'outline:3px solid #eab308;outline-offset:-3px;';
+                        // AMZL text styling
+                        if (amzlChutes[qbccMapId]) overlayStyle += 'font-size:120%;font-weight:700;text-decoration:underline;color:#ffffff !important;';
                     }
                     html += '<td data-armezz-l="' + l + '" data-armezz-c="' + c + '" style="padding:3px 2px;text-align:center;border-radius:3px;cursor:default;' + overlayStyle + bg + ';' + color + (c===16?';border-right:2px solid var(--h-border2,#3a4a5c)':'') + '">' + (cellDisplay || '') + '</td>';
                 }
@@ -11972,6 +12126,20 @@ if (k === 'eta') {
             if (c.assoc) html += '<span style="opacity:0.7;font-size:10px">' + c.assoc.login + '</span>';
             html += '</div>';
         });
+        // Legend
+        html += '<div style="margin-top:16px;font-size:10px;color:var(--h-muted,#7a8a9a)">';
+        html += '<div style="font-weight:700;color:#22d3ee;margin-bottom:4px;font-size:11px">Legend</div>';
+        html += '<div style="display:flex;align-items:center;gap:6px;margin-bottom:3px"><span style="display:inline-block;width:14px;height:10px;background:#166534;border-radius:2px"></span> Scanning</div>';
+        html += '<div style="display:flex;align-items:center;gap:6px;margin-bottom:3px"><span style="display:inline-block;width:14px;height:10px;background:#ca8a04;border-radius:2px"></span> Idle (&gt;5 min)</div>';
+        html += '<div style="display:flex;align-items:center;gap:6px;margin-bottom:3px"><span style="display:inline-block;width:14px;height:10px;background:#7f1d1d;border-radius:2px"></span> WIP \u2265 100</div>';
+        html += '<div style="display:flex;align-items:center;gap:6px;margin-bottom:8px"><span style="display:inline-block;width:14px;height:10px;background:transparent;border-radius:2px"></span> No activity</div>';
+        html += '<div style="font-weight:700;color:#22d3ee;margin-bottom:4px;font-size:11px">Borders</div>';
+        html += '<div style="display:flex;align-items:center;gap:6px;margin-bottom:3px"><span style="display:inline-block;width:14px;height:10px;border:2px solid #ef4444;border-radius:2px"></span> High Priority</div>';
+        html += '<div style="display:flex;align-items:center;gap:6px;margin-bottom:3px"><span style="display:inline-block;width:14px;height:10px;border:2px dashed #f97316;border-radius:2px"></span> Low Priority</div>';
+        html += '<div style="display:flex;align-items:center;gap:6px;margin-bottom:3px"><span style="display:inline-block;width:14px;height:10px;border:2px solid #3b82f6;border-radius:2px"></span> Full</div>';
+        html += '<div style="display:flex;align-items:center;gap:6px;margin-bottom:3px"><span style="display:inline-block;width:14px;height:10px;border:2px solid #eab308;border-radius:2px"></span> Half Full</div>';
+        html += '<div style="display:flex;align-items:center;gap:6px;margin-bottom:3px"><span style="display:inline-block;width:14px;height:10px;border:2px solid #9ca3af;border-radius:2px"></span> Inactive/Jammed</div>';
+        html += '</div>';
         html += '</div>'; // end right panel
 
         html += '</div></div>'; // end flex row + outer wrapper
@@ -12001,20 +12169,24 @@ if (k === 'eta') {
         if (amzlBtn) amzlBtn.addEventListener('click', ovClick('amzl'));
         if (prioBtn) prioBtn.addEventListener('click', ovClick('priority'));
         if (perspBtn) perspBtn.addEventListener('click', ovClick('perspective'));
+        var omniBtn = document.getElementById('hydra-armezz-ov-serpenteye');
+        if (omniBtn) omniBtn.addEventListener('click', ovClick('serpenteye'));
         // Tooltip on hover
         var tip = document.createElement('div');
-        tip.style.cssText = 'position:fixed;z-index:2147483647;background:#1b2330;border:1px solid #3a4a5c;border-radius:8px;padding:10px 14px;box-shadow:0 4px 16px rgba(0,0,0,.7);font-size:12px;color:#e8eaf0;pointer-events:none;display:none;max-width:220px';
-        document.body.appendChild(tip);
+        tip.style.cssText = 'position:fixed;z-index:2147483647;background:#1b2330;border:1px solid #3a4a5c;border-radius:10px;padding:15px 21px;box-shadow:0 6px 24px rgba(0,0,0,.7);font-size:18px;color:#e8eaf0;pointer-events:none;display:none;max-width:330px';
+        (document.getElementById('hydra-panel') || document.body).appendChild(tip);
         var tipGrid = grid;
         wrap.addEventListener('mouseover', function(e) {
             var td = e.target.closest('td[data-armezz-l]');
             if (!td) { tip.style.display = 'none'; return; }
             var l = parseInt(td.getAttribute('data-armezz-l')), c = parseInt(td.getAttribute('data-armezz-c'));
             var cd = tipGrid[l] && tipGrid[l][c];
-            if (!cd) { tip.style.display = 'none'; return; }
-            var h = '<div style="font-weight:700;font-size:13px;margin-bottom:6px">' + cd.chuteId + '</div>';
-            // QBCC route allocation
             var qMapId = 20000 + c * 100 + l;
+            // Show tooltip if we have cell data OR QBCC data for this chute
+            if (!cd && !qbccChuteData) { tip.style.display = 'none'; return; }
+            var chuteIdStr = cd ? cd.chuteId : String(qMapId);
+            var h = '<div style="font-weight:700;font-size:13px;margin-bottom:6px">' + chuteIdStr + '</div>';
+            // QBCC route allocation
             if (qbccChuteData) {
                 for (var qi = 0; qi < qbccChuteData.length; qi++) {
                     if (qbccChuteData[qi].chuteId.mapId === qMapId) {
@@ -12027,9 +12199,9 @@ if (k === 'eta') {
                     }
                 }
             }
-            if (cd.assoc) {
+            if (cd && cd.assoc) {
                 h += '<div style="display:flex;gap:10px;align-items:center">';
-                h += '<img src="https://internal-cdn.amazon.com/badgephotos.amazon.com/?uid=' + cd.assoc.login + '" style="width:40px;height:40px;border-radius:50%;object-fit:cover;border:2px solid ' + (cd.assoc.scanning ? '#4ade80' : '#fbbf24') + '">';
+                h += '<img src="https://badgephotos.corp.amazon.com/?uid=' + cd.assoc.login + '" style="width:40px;height:40px;border-radius:50%;object-fit:cover;border:2px solid ' + (cd.assoc.scanning ? '#4ade80' : '#fbbf24') + '" onerror="this.style.display=\'none\';this.nextElementSibling.style.display=\'flex\'"><span style="display:none;width:40px;height:40px;border-radius:50%;background:#4a5568;border:2px solid ' + (cd.assoc.scanning ? '#4ade80' : '#fbbf24') + ';align-items:center;justify-content:center;font-size:14px;font-weight:700;color:#fff">' + cd.assoc.login.substring(0,2).toUpperCase() + '</span>';
                 h += '<div>';
                 h += '<div style="font-weight:600">' + cd.assoc.login + '</div>';
                 h += '<div style="color:#4ade80;font-size:11px">' + cd.assoc.scanRate + ' JPH</div>';
@@ -12039,16 +12211,27 @@ if (k === 'eta') {
             }
             tip.innerHTML = h;
             tip.style.display = 'block';
+            var zoomSlider = document.getElementById('hydra-bar-zoom-slider');
+            var tipScale = zoomSlider ? parseInt(zoomSlider.value, 10) / 100 : 1;
+            tip.style.transform = 'scale(' + tipScale + ')';
+            tip.style.transformOrigin = 'top left';
             var r = td.getBoundingClientRect();
-            tip.style.left = (r.left + r.width/2 - 80) + 'px';
-            tip.style.top = (r.bottom + 6) + 'px';
-            // Outline hovered cell
-            td.style.outline = '2px solid #22d3ee';
-            td.style.outlineOffset = '-2px';
+            tip.style.left = Math.max(4, Math.min(r.left + r.width/2 - 80 * tipScale, window.innerWidth - 340 * tipScale)) + 'px';
+            // Flip above if not enough space below
+            var tipH = 200 * tipScale; // estimate
+            if (r.bottom + 6 + tipH > window.innerHeight) {
+                tip.style.top = Math.max(4, r.top - tipH - 6) + 'px';
+                tip.style.transformOrigin = 'bottom left';
+            } else {
+                tip.style.top = (r.bottom + 6) + 'px';
+                tip.style.transformOrigin = 'top left';
+            }
+            // Highlight hovered cell with box-shadow (doesn't conflict with outline overlays)
+            td.style.boxShadow = 'inset 0 0 0 2px #22d3ee';
         });
         wrap.addEventListener('mouseout', function(e) {
             var td = e.target.closest('td[data-armezz-l]');
-            if (td) { td.style.outline = ''; td.style.outlineOffset = ''; }
+            if (td) { td.style.boxShadow = ''; }
             if (!e.relatedTarget || !e.relatedTarget.closest('td[data-armezz-l]')) tip.style.display = 'none';
         });
         // Panel item hover → highlight table cell + show tooltip
@@ -12057,8 +12240,7 @@ if (k === 'eta') {
             if (!panel) return;
             var chuteId = panel.getAttribute('data-panel-chute');
             // Highlight the panel item
-            panel.style.outline = '2px solid #22d3ee';
-            panel.style.outlineOffset = '-2px';
+            panel.style.boxShadow = 'inset 0 0 0 2px #22d3ee';
             panel._panelSelf = true;
             // Find matching table cell by chuteId
             var matchTd = wrap.querySelector('td[data-armezz-l]');
@@ -12070,8 +12252,7 @@ if (k === 'eta') {
                 if (tcd && tcd.chuteId === chuteId) { matchTd = allTds[i]; break; }
             }
             if (matchTd && matchTd.getAttribute('data-armezz-l')) {
-                matchTd.style.outline = '2px solid #22d3ee';
-                matchTd.style.outlineOffset = '-2px';
+                matchTd.style.boxShadow = 'inset 0 0 0 2px #22d3ee';
                 matchTd._panelHighlight = true;
                 // Show tooltip for matched cell
                 var ml = parseInt(matchTd.getAttribute('data-armezz-l')), mc = parseInt(matchTd.getAttribute('data-armezz-c'));
@@ -12083,8 +12264,12 @@ if (k === 'eta') {
                     if (mcd.assoc) { mh += '<div style="font-weight:600;font-size:11px">' + mcd.assoc.login + ' \u2014 ' + mcd.assoc.scanRate + ' JPH</div>'; }
                     tip.innerHTML = mh;
                     tip.style.display = 'block';
+                    var zs2 = document.getElementById('hydra-bar-zoom-slider');
+                    var ts2 = zs2 ? parseInt(zs2.value, 10) / 100 : 1;
+                    tip.style.transform = 'scale(' + ts2 + ')';
+                    tip.style.transformOrigin = 'top left';
                     var mr = matchTd.getBoundingClientRect();
-                    tip.style.left = (mr.left + mr.width/2 - 80) + 'px';
+                    tip.style.left = (mr.left + mr.width/2 - 80 * ts2) + 'px';
                     tip.style.top = (mr.bottom + 6) + 'px';
                 }
             }
@@ -12093,12 +12278,120 @@ if (k === 'eta') {
             var panel = e.target.closest('[data-panel-chute]');
             if (panel) {
                 // Remove panel highlights
-                panel.style.outline = ''; panel.style.outlineOffset = '';
+                panel.style.boxShadow = '';
                 var allTds = wrap.querySelectorAll('td[data-armezz-l]');
-                for (var i = 0; i < allTds.length; i++) { if (allTds[i]._panelHighlight) { allTds[i].style.outline = ''; allTds[i].style.outlineOffset = ''; allTds[i]._panelHighlight = false; } }
+                for (var i = 0; i < allTds.length; i++) { if (allTds[i]._panelHighlight) { allTds[i].style.boxShadow = ''; allTds[i]._panelHighlight = false; } }
                 tip.style.display = 'none';
             }
         }, true);
+        // Click-to-assign: click chute with associate to select, click destination to assign
+        var assignBar = document.createElement('div');
+        assignBar.style.cssText = 'position:fixed;bottom:20px;left:50%;transform:translateX(-50%);z-index:2147483647;background:#1e40af;color:#fff;padding:8px 16px;border-radius:8px;font-size:13px;font-weight:600;box-shadow:0 4px 16px rgba(0,0,0,.7);display:none;white-space:nowrap';
+        (document.getElementById('hydra-panel') || document.body).appendChild(assignBar);
+        wrap._armezzAssignBar = assignBar;
+        var assignClickHandler = function(e) {
+            var td = e.target.closest('td[data-armezz-l]');
+            if (!td) return;
+            var l = parseInt(td.getAttribute('data-armezz-l')), c = parseInt(td.getAttribute('data-armezz-c'));
+            var cd = tipGrid[l] && tipGrid[l][c];
+            var qMapId = 20000 + c * 100 + l;
+
+            if (!arMezzAssignState) {
+                // First click: select associate from source chute
+                if (!cd || !cd.assoc) return; // must have an associate
+                arMezzAssignState = { login: cd.assoc.login, srcLane: l, srcChute: c };
+                td.style.outline = '3px solid #a855f7'; td.style.outlineOffset = '-3px';
+                wrap._armezzSrcTd = td;
+                assignBar.innerHTML = 'Moving ' + cd.assoc.login + ' \u2192 click destination chute <span id="hydra-assign-cancel" style="margin-left:12px;cursor:pointer;font-size:16px;vertical-align:middle">\u2716</span>';
+                assignBar.style.display = 'block';
+                var cancelBtn = document.getElementById('hydra-assign-cancel');
+                if (cancelBtn) cancelBtn.addEventListener('click', function(ev) {
+                    ev.stopPropagation();
+                    arMezzAssignState = null;
+                    if (wrap._armezzSrcTd) { wrap._armezzSrcTd.style.outline = ''; wrap._armezzSrcTd.style.outlineOffset = ''; }
+                    assignBar.style.display = 'none';
+                });
+            } else {
+                // Second click: assign to destination
+                console.log('[Hydra Assign] Destination click: lane=' + l + ' chute=' + c + ' mapId=' + qMapId);
+                if (l === arMezzAssignState.srcLane && c === arMezzAssignState.srcChute) {
+                    // Cancel if clicking same cell
+                    arMezzAssignState = null;
+                    if (wrap._armezzSrcTd) { wrap._armezzSrcTd.style.outline = ''; wrap._armezzSrcTd.style.outlineOffset = ''; }
+                    assignBar.style.display = 'none';
+                    return;
+                }
+                // Find workstationId: prefer WATT data, fallback to QBCC workcellGuid
+                var destCd = tipGrid[l] && tipGrid[l][c];
+                var destGuid = destCd && destCd.wsId ? destCd.wsId : null;
+                if (!destGuid && qbccChuteData) {
+                    for (var qi = 0; qi < qbccChuteData.length; qi++) {
+                        if (qbccChuteData[qi].chuteId.mapId === qMapId) { destGuid = qbccChuteData[qi].chuteId.workcellGuid; break; }
+                    }
+                }
+                if (!destGuid) { assignBar.textContent = '\u26A0 No workstation ID for this chute'; setTimeout(function() { assignBar.style.display = 'none'; }, 2000); arMezzAssignState = null; if (wrap._armezzSrcTd) { wrap._armezzSrcTd.style.outline = ''; wrap._armezzSrcTd.style.outlineOffset = ''; } return; }
+                var node = (typeof mdw5Settings !== 'undefined' && mdw5Settings.node) ? mdw5Settings.node.toUpperCase() : 'ORD9';
+                var login = arMezzAssignState.login;
+                console.log('[Hydra Assign] Using guid:', destGuid, 'source:', (destCd && destCd.wsId) ? 'WATT' : 'QBCC');
+                assignBar.textContent = 'Assigning ' + login + ' to chute ' + qMapId + '...';
+                saveStaffingAssignment(node, login, destGuid).then(function() {
+                    assignBar.textContent = '\u2714 ' + login + ' assigned to ' + qMapId;
+                    assignBar.style.background = '#166534';
+                    setTimeout(function() { assignBar.style.display = 'none'; assignBar.style.background = '#1e40af'; }, 2500);
+                    // Refresh data
+                    fetchArMezzData().then(function() { renderOBArMezzTable(targetEl); });
+                }).catch(function(err) {
+                    assignBar.textContent = '\u26A0 ' + err.message;
+                    assignBar.style.background = '#7f1d1d';
+                    setTimeout(function() { assignBar.style.display = 'none'; assignBar.style.background = '#1e40af'; }, 3000);
+                });
+                arMezzAssignState = null;
+                if (wrap._armezzSrcTd) { wrap._armezzSrcTd.style.outline = ''; wrap._armezzSrcTd.style.outlineOffset = ''; }
+            }
+        };
+        wrap.addEventListener('click', assignClickHandler);
+        wrap._armezzClickHandler = assignClickHandler;
+        // Active Moves hover → highlight destination chute (purple) and source chute (pink)
+        wrap.parentElement.addEventListener('mouseover', function(e) {
+            var moveEl = e.target.closest('[data-move-dest]');
+            if (!moveEl) return;
+            moveEl.style.outline = '2px solid #eab308';
+            moveEl.style.outlineOffset = '-2px';
+            var mapId = parseInt(moveEl.getAttribute('data-move-dest'), 10);
+            var srcId = moveEl.getAttribute('data-move-src');
+            var destLane = mapId % 100;
+            var destChute = Math.floor((mapId - 20000) / 100);
+            var srcLane = srcId ? parseInt(srcId, 10) % 100 : 0;
+            var srcChute = srcId ? Math.floor((parseInt(srcId, 10) - 20000) / 100) : 0;
+            var allTds = wrap.querySelectorAll('td[data-armezz-l]');
+            for (var i = 0; i < allTds.length; i++) {
+                var tl = parseInt(allTds[i].getAttribute('data-armezz-l'));
+                var tc = parseInt(allTds[i].getAttribute('data-armezz-c'));
+                if (tl === destLane && tc === destChute) {
+                    allTds[i]._prevStyle = allTds[i].style.cssText;
+                    allTds[i].style.boxShadow = 'inset 0 0 0 3px #a855f7';
+                    allTds[i].style.outline = '3px solid #a855f7';
+                    allTds[i].style.outlineOffset = '-3px';
+                    allTds[i]._moveHighlight = true;
+                }
+                if (srcId && tl === srcLane && tc === srcChute) {
+                    allTds[i]._prevStyle = allTds[i].style.cssText;
+                    allTds[i].style.boxShadow = 'inset 0 0 0 3px #ec4899';
+                    allTds[i].style.outline = '3px solid #ec4899';
+                    allTds[i].style.outlineOffset = '-3px';
+                    allTds[i]._moveHighlight = true;
+                }
+            }
+        });
+        wrap.parentElement.addEventListener('mouseout', function(e) {
+            var moveEl = e.target.closest('[data-move-dest]');
+            if (moveEl) {
+                moveEl.style.outline = '';
+                moveEl.style.outlineOffset = '';
+                var allTds = wrap.querySelectorAll('td[data-armezz-l]');
+                for (var i = 0; i < allTds.length; i++) { if (allTds[i]._moveHighlight) { allTds[i].style.boxShadow = ''; allTds[i].style.outline = ''; allTds[i].style.outlineOffset = ''; allTds[i]._moveHighlight = false; } }
+            }
+        });
         wrap._armezzTip = tip; // store ref for cleanup
     }
 
@@ -13224,7 +13517,7 @@ if (k === 'eta') {
                     // AR Mezz doesn't need OB dock data — skip straight to WATT
                     if (_fobtab === 'armezz') {
                         setStatus('Pulling AR Mezz...');
-                        return Promise.all([fetchArMezzData(), fetchQbccChuteInfo().catch(function(e){ console.warn('[Hydra QBCC]', e.message || e); })]).then(function() {
+                        return Promise.all([fetchArMezzData(), fetchQbccChuteInfo().catch(function(e){ console.warn("[Hydra QBCC]", e.message || e); }), fetchStaffingAssignments().catch(function(e){ console.warn("[Hydra Staffing]", e.message || e); })]).then(function() {
                             _paint(function(){ renderOBTabs(); renderOBTable(); });
                             setStatus('\u2714 AR Mezz loaded \u2014 ' + new Date().toLocaleTimeString());
                         }).catch(function(e) { setStatus('AR Mezz failed: ' + (e.message||e)); });
@@ -14034,16 +14327,24 @@ if (k === 'eta') {
             if (_wrap && _mt && !_mt.closest('.hydra-pane')) {
                 _mt.style.zoom = 1;
                 var _availW = _wrap.clientWidth;
+                var _availH = _wrap.clientHeight;
                 // Measure intrinsic width (off-screen) for cap calculation
                 _mt.style.position = 'absolute'; _mt.style.left = '-99999px'; _mt.style.width = 'max-content';
                 var _natW = _mt.offsetWidth + 2;
+                var _natH = _mt.offsetHeight + 2;
                 _mt.style.position = ''; _mt.style.left = ''; _mt.style.width = '';
                 // fit = how much we'd need to zoom to fill the panel
-                // But never exceed 1.0 (panel width) — that's the absolute max
+                // Only constrain by width — vertical scrolling handles tall tables
+                // Exception: AR Mezz (.hydra-table div) should fit both W+H
                 var _fitToPanel = _availW / _natW;
+                var _isArMezz = _mt.id !== 'hydra-table' && _mt.classList.contains('hydra-table');
                 if (_natW > 0 && _availW > 0) {
+                    var _fitVal = _fitToPanel;
+                    if (_isArMezz && _natH > 0 && _availH > 0) {
+                        _fitVal = Math.min(_fitToPanel, _availH / _natH);
+                    }
                     // Narrow table: grow up to cap. Wide table: shrink to fit.
-                    var _fit = (_fitToPanel > 1) ? Math.min(autoFitCap, _fitToPanel) : _fitToPanel;
+                    var _fit = (_fitVal > 1) ? Math.min(autoFitCap, _fitVal) : _fitVal;
                     scale = Math.max(0.3, _fit);
                 }
             }
@@ -14056,6 +14357,12 @@ if (k === 'eta') {
         if (tbl && tbl.closest('.hydra-pane')) {
             var _wrap2 = document.getElementById('hydra-table-wrap');
             tbl = _wrap2 ? _wrap2.querySelector('#hydra-table') : null;
+        }
+        // For AR Mezz which uses .hydra-table div instead of #hydra-table
+        if (!tbl) {
+            var _wrap3 = document.getElementById('hydra-table-wrap');
+            tbl = _wrap3 ? _wrap3.querySelector('.hydra-table') : null;
+            if (tbl && tbl.closest('.hydra-pane')) tbl = null;
         }
         if (tbl) {
             tbl.style.transform = '';
@@ -14962,6 +15269,7 @@ if (k === 'eta') {
                 else if (activeView === 'OB') { renderOBTabs(); renderOBTable(); }
                 else if (activeView === 'PS') { renderPSTable(); }
                 else { renderIBTabs(); renderIBTable(); }
+                updateSlaIndicator();
             }
 
             // Toggle dropdown on button click
@@ -15344,9 +15652,36 @@ if (k === 'eta') {
         document.getElementById('hydra-fs-btn').addEventListener('click', function() {
             var panel = document.getElementById('hydra-panel');
             if (!document.fullscreenElement) {
-                (panel.requestFullscreen || panel.webkitRequestFullscreen || panel.mozRequestFullScreen).call(panel);
+                // Move overlays into panel before fullscreen
+                var ov = document.getElementById('hydra-settings-overlay');
+                if (ov && ov.parentNode !== panel) panel.appendChild(ov);
+                var rov = document.getElementById('hydra-route-overlay');
+                if (rov && rov.parentNode !== panel) panel.appendChild(rov);
+                var pov = document.getElementById('hydra-ps-popup');
+                if (pov && pov.parentNode !== panel) panel.appendChild(pov);
+                var mov = document.getElementById('hydra-move-modal');
+                if (mov && mov.parentNode !== panel) panel.appendChild(mov);
+                panel.requestFullscreen();
             } else {
-                (document.exitFullscreen || document.webkitExitFullscreen || document.mozCancelFullScreen).call(document);
+                document.exitFullscreen();
+            }
+        });
+        document.addEventListener('fullscreenchange', function() {
+            if (!document.fullscreenElement) {
+                // Move overlays back to body after exiting fullscreen
+                var ov = document.getElementById('hydra-settings-overlay');
+                if (ov && ov.parentNode !== document.body) document.body.appendChild(ov);
+                var rov = document.getElementById('hydra-route-overlay');
+                if (rov && rov.parentNode !== document.body) document.body.appendChild(rov);
+                var pov = document.getElementById('hydra-ps-popup');
+                if (pov && pov.parentNode !== document.body) document.body.appendChild(pov);
+                var mov = document.getElementById('hydra-move-modal');
+                if (mov && mov.parentNode !== document.body) document.body.appendChild(mov);
+                var fsb = document.getElementById('hydra-fs-btn');
+                if (fsb) { fsb.innerHTML = '&#x26F6;'; fsb.title = 'Fullscreen'; }
+            } else {
+                var fsb = document.getElementById('hydra-fs-btn');
+                if (fsb) { fsb.innerHTML = '&#x2716;'; fsb.title = 'Exit Fullscreen'; }
             }
         });
 
