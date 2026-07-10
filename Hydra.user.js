@@ -1,6 +1,6 @@
 // ==UserScript==
 // @name         Hydra
-// @version      1.83
+// @version      2.0
 // @description  NASC Ops Chase Tool
 // @author       eddobrev
 // @updateURL    https://raw.githubusercontent.com/dylbecke/hydra-userscript/main/Hydra.meta.js
